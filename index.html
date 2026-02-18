@@ -1,0 +1,677 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OCR Facturas a Excel/Sheets</title>
+    
+    <!-- Tesseract.js CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+    <!-- SweetAlert2 para alertas bonitas -->
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <!-- Tailwind CSS (via CDN) para estilos rápidos y limpios -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Iconos Phosphor -->
+    <script src="https://unpkg.com/@phosphor-icons/web"></script>
+
+    <style>
+        body { font-family: 'Segoe UI', system-ui, sans-serif; background-color: #f3f4f6; }
+        .drop-zone { border: 2px dashed #cbd5e1; transition: all 0.3s; }
+        .drop-zone.dragover { border-color: #3b82f6; background-color: #eff6ff; }
+        
+        /* Estilos de Tabla Excel-like */
+        .excel-table th { background-color: #f8fafc; color: #475569; font-weight: 600; font-size: 0.75rem; border: 1px solid #e2e8f0; padding: 8px; white-space: nowrap; }
+        .excel-table td { border: 1px solid #e2e8f0; padding: 4px 8px; font-size: 0.85rem; vertical-align: middle; background: white; }
+        .excel-table input { width: 100%; border: none; outline: none; background: transparent; padding: 4px; font-family: monospace; font-size: 0.85rem; }
+        .excel-table input:focus { background-color: #eff6ff; box-shadow: inset 0 0 0 2px #3b82f6; }
+        
+        .status-badge { padding: 2px 6px; border-radius: 4px; font-size: 0.7rem; font-weight: bold; text-transform: uppercase; }
+        .status-pending { background: #e2e8f0; color: #64748b; }
+        .status-processing { background: #dbeafe; color: #2563eb; }
+        .status-done { background: #dcfce7; color: #166534; }
+        .status-error { background: #fee2e2; color: #991b1b; }
+
+        .loader { border: 2px solid #f3f3f3; border-top: 2px solid #3498db; border-radius: 50%; width: 16px; height: 16px; animation: spin 1s linear infinite; display: inline-block; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+        /* Campos críticos vacíos */
+        .validation-error { background-color: #fee2e2 !important; }
+    </style>
+</head>
+<body class="h-screen flex flex-col">
+
+    <!-- HEADER -->
+    <header class="bg-white shadow-sm border-b p-4 flex justify-between items-center z-10">
+        <div class="flex items-center gap-2">
+            <i class="ph ph-receipt text-3xl text-blue-600"></i>
+            <div>
+                <h1 class="text-xl font-bold text-slate-800">OCR Facturas Pro</h1>
+                <p class="text-xs text-slate-500">Lectura automática, validación y exportación</p>
+            </div>
+        </div>
+        
+        <div class="flex gap-3 items-center">
+            <div class="flex flex-col items-end">
+                <label class="text-xs text-slate-500 font-semibold mb-1">URL Web App (Google Sheets)</label>
+                <input type="text" id="sheetsUrl" placeholder="Pegar URL del script aquí..." class="border rounded px-2 py-1 text-xs w-64 focus:ring-2 ring-blue-500 outline-none">
+            </div>
+            <button onclick="app.exportToCSV()" class="bg-green-600 hover:bg-green-700 text-white px-3 py-2 rounded text-sm flex items-center gap-2 transition">
+                <i class="ph ph-file-csv"></i> CSV
+            </button>
+            <button onclick="app.sendAllToSheets()" class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded text-sm flex items-center gap-2 transition">
+                <i class="ph ph-google-logo"></i> Enviar Todo
+            </button>
+        </div>
+    </header>
+
+    <!-- MAIN CONTENT -->
+    <main class="flex-1 flex overflow-hidden">
+        
+        <!-- SIDEBAR (Upload & Preview) -->
+        <aside class="w-80 bg-white border-r flex flex-col shadow-lg z-0">
+            <!-- Zona de Carga -->
+            <div class="p-4 border-b">
+                <div id="dropZone" class="drop-zone rounded-lg p-6 text-center cursor-pointer">
+                    <input type="file" id="fileInput" multiple accept="image/*" class="hidden">
+                    <i class="ph ph-upload-simple text-3xl text-slate-400 mb-2"></i>
+                    <p class="text-sm font-medium text-slate-600">Arrastra imágenes aquí</p>
+                    <p class="text-xs text-slate-400 mt-1">o clic para seleccionar</p>
+                </div>
+                
+                <div class="mt-4 space-y-2">
+                    <div class="flex justify-between text-xs text-slate-600 font-semibold">
+                        <span>Progreso Global</span>
+                        <span id="queueCount">0/0</span>
+                    </div>
+                    <div class="w-full bg-slate-200 rounded-full h-2">
+                        <div id="globalProgress" class="bg-blue-600 h-2 rounded-full transition-all duration-300" style="width: 0%"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Opciones de Procesamiento -->
+            <div class="p-4 bg-slate-50 border-b space-y-3">
+                <h3 class="text-xs font-bold text-slate-500 uppercase">Configuración OCR</h3>
+                <div>
+                    <label class="text-xs text-slate-600 block mb-1">Calidad / Modo</label>
+                    <select id="ocrMode" class="w-full border rounded text-xs p-1.5">
+                        <option value="fast">Rápido (Sin pre-proceso pesado)</option>
+                        <option value="balanced" selected>Balanceado (Escala de grises + Contraste)</option>
+                        <option value="best">Detallado (Binarización + Alta Res)</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="text-xs text-slate-600 block mb-1">Tipo de Documento</label>
+                    <select id="docType" class="w-full border rounded text-xs p-1.5">
+                        <option value="generic">Genérico</option>
+                        <option value="sunat" selected>Perú (Factura/Boleta SUNAT)</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- Preview (Canvas oculto para procesamiento, visible para usuario) -->
+            <div class="flex-1 overflow-auto p-4 bg-slate-100 flex flex-col items-center justify-center relative">
+                <h3 class="absolute top-2 left-2 text-xs font-bold text-slate-400 z-10">VISTA PREVIA</h3>
+                <canvas id="previewCanvas" class="max-w-full shadow-md border bg-white hidden"></canvas>
+                <img id="previewImg" class="max-w-full shadow-md border bg-white object-contain h-64 w-full" src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxMDAiIGhlaWdodD0iMTAwIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjZjFmMmY2Ii8+PC9zdmc+" alt="Vista previa">
+                <div id="logPanel" class="w-full mt-2 p-2 bg-black text-green-400 font-mono text-[10px] h-32 overflow-y-auto rounded hidden"></div>
+            </div>
+        </aside>
+
+        <!-- DATA TABLE -->
+        <div class="flex-1 flex flex-col overflow-hidden bg-white">
+            <div class="overflow-auto flex-1 p-0">
+                <table class="w-full excel-table text-left border-collapse">
+                    <thead class="sticky top-0 z-10 shadow-sm">
+                        <tr>
+                            <th class="w-10 text-center"><i class="ph ph-gear"></i></th> <!-- Acciones -->
+                            <th class="w-20">Estado</th>
+                            <th class="w-24">Fecha</th>
+                            <th class="w-28">RUC/DNI</th>
+                            <th class="w-40">Razón Social</th>
+                            <th class="w-20">Tipo</th>
+                            <th class="w-16">Serie</th>
+                            <th class="w-20">Número</th>
+                            <th class="w-16">Moneda</th>
+                            <th class="w-20 text-right">Subtotal</th>
+                            <th class="w-20 text-right">IGV</th>
+                            <th class="w-24 text-right bg-blue-50">Total</th>
+                            <th class="w-20 text-right">Detracción</th>
+                            <th class="w-32">Archivo</th>
+                            <th class="w-40">Observaciones</th>
+                        </tr>
+                    </thead>
+                    <tbody id="dataTableBody">
+                        <!-- Las filas se generarán dinámicamente aquí -->
+                    </tbody>
+                </table>
+            </div>
+            
+            <!-- Footer con totales rápidos -->
+            <div class="h-10 border-t bg-slate-50 flex items-center px-4 justify-between text-xs text-slate-600">
+                <span id="rowCount">0 Documentos</span>
+                <div class="flex gap-4">
+                    <span>Suma Total (Detectada): <strong id="sumTotal">0.00</strong></span>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- HIDDEN ELEMENTS -->
+    <div id="hiddenContainer" style="display:none;"></div>
+
+    <script>
+        /**
+         * LÓGICA DE LA APLICACIÓN
+         * Módulos: UI, OCR, Extracción, Datos
+         */
+
+        const app = {
+            state: {
+                files: [], // { id, file, status, data: {}, logs: [] }
+                isProcessing: false,
+                queueIndex: 0
+            },
+            
+            // Inicialización
+            init: () => {
+                // Drag & Drop
+                const dropZone = document.getElementById('dropZone');
+                const fileInput = document.getElementById('fileInput');
+
+                dropZone.addEventListener('click', () => fileInput.click());
+                fileInput.addEventListener('change', (e) => app.handleFiles(e.target.files));
+
+                dropZone.addEventListener('dragover', (e) => {
+                    e.preventDefault();
+                    dropZone.classList.add('dragover');
+                });
+                dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+                dropZone.addEventListener('drop', (e) => {
+                    e.preventDefault();
+                    dropZone.classList.remove('dragover');
+                    app.handleFiles(e.dataTransfer.files);
+                });
+
+                // Paste Event
+                document.addEventListener('paste', (e) => {
+                    const items = e.clipboardData.items;
+                    const files = [];
+                    for (let i = 0; i < items.length; i++) {
+                        if (items[i].type.indexOf('image') !== -1) {
+                            files.push(items[i].getAsFile());
+                        }
+                    }
+                    if(files.length > 0) app.handleFiles(files);
+                });
+            },
+
+            // Manejo de Archivos
+            handleFiles: (fileList) => {
+                const newFiles = Array.from(fileList).map(file => ({
+                    id: Math.random().toString(36).substr(2, 9),
+                    file: file,
+                    status: 'pending', // pending, processing, done, error
+                    progress: 0,
+                    data: {
+                        fecha_emision: '', ruc_dni: '', razon_social: '', tipo: '',
+                        serie: '', numero: '', moneda: '', subtotal: '', igv: '',
+                        total: '', detraccion: '', observaciones: '', ocr_text: ''
+                    },
+                    blobUrl: URL.createObjectURL(file)
+                }));
+
+                app.state.files = [...app.state.files, ...newFiles];
+                app.ui.renderTable();
+                app.processQueue();
+            },
+
+            // Cola de Procesamiento
+            processQueue: async () => {
+                if (app.state.isProcessing) return;
+
+                const pendingFileIndex = app.state.files.findIndex(f => f.status === 'pending');
+                if (pendingFileIndex === -1) return; // Nada pendiente
+
+                app.state.isProcessing = true;
+                app.state.queueIndex = pendingFileIndex;
+                const currentFileObj = app.state.files[pendingFileIndex];
+
+                // Actualizar UI
+                currentFileObj.status = 'processing';
+                app.ui.updateRowStatus(currentFileObj.id, 'processing');
+                app.ui.showPreview(currentFileObj);
+                app.ui.updateGlobalProgress();
+
+                try {
+                    // 1. Preprocesamiento de Imagen
+                    app.ui.log("Iniciando pre-procesamiento...");
+                    const processedImage = await app.ocr.preprocessImage(currentFileObj.file);
+                    
+                    // 2. Ejecutar Tesseract
+                    app.ui.log("Ejecutando OCR...");
+                    const { text } = await app.ocr.runTesseract(processedImage, (progress) => {
+                        currentFileObj.progress = progress;
+                        // Opcional: mostrar progreso por fila
+                    });
+
+                    // 3. Extracción de Datos
+                    app.ui.log("Analizando texto extraído...");
+                    currentFileObj.data.ocr_text = text;
+                    const extractedData = app.extractor.parse(text, document.getElementById('docType').value);
+                    
+                    // Mezclar datos extraídos con estructura
+                    currentFileObj.data = { ...currentFileObj.data, ...extractedData };
+                    
+                    currentFileObj.status = 'done';
+                    app.ui.log("Completado.");
+
+                } catch (error) {
+                    console.error(error);
+                    currentFileObj.status = 'error';
+                    currentFileObj.data.observaciones = "Error OCR: " + error.message;
+                    app.ui.log("Error: " + error.message);
+                }
+
+                app.ui.updateRowData(currentFileObj.id);
+                app.ui.updateRowStatus(currentFileObj.id, currentFileObj.status);
+                
+                app.state.isProcessing = false;
+                app.ui.updateGlobalProgress();
+                
+                // Procesar siguiente recursivamente
+                app.processQueue();
+            },
+
+            // --- MÓDULO OCR ---
+            ocr: {
+                preprocessImage: (file) => {
+                    return new Promise((resolve, reject) => {
+                        const img = new Image();
+                        img.onload = () => {
+                            const canvas = document.createElement('canvas');
+                            const ctx = canvas.getContext('2d');
+                            const mode = document.getElementById('ocrMode').value;
+
+                            // Redimensionar si es muy grande (optimización)
+                            const MAX_WIDTH = 2500;
+                            let width = img.width;
+                            let height = img.height;
+                            
+                            if (width > MAX_WIDTH) {
+                                height = Math.round(height * (MAX_WIDTH / width));
+                                width = MAX_WIDTH;
+                            }
+
+                            canvas.width = width;
+                            canvas.height = height;
+                            ctx.drawImage(img, 0, 0, width, height);
+
+                            // Aplicar filtros según modo
+                            if (mode !== 'fast') {
+                                const imageData = ctx.getImageData(0, 0, width, height);
+                                const data = imageData.data;
+                                
+                                // Escala de grises y Aumento de Contraste
+                                for (let i = 0; i < data.length; i += 4) {
+                                    const avg = (data[i] + data[i + 1] + data[i + 2]) / 3;
+                                    let color = avg;
+                                    
+                                    // Aumentar contraste simple
+                                    const contrastFactor = 1.2; 
+                                    color = contrastFactor * (color - 128) + 128;
+                                    
+                                    // Binarización para modo 'best'
+                                    if (mode === 'best') {
+                                        color = color > 160 ? 255 : 0; 
+                                    }
+
+                                    data[i] = color;     // R
+                                    data[i + 1] = color; // G
+                                    data[i + 2] = color; // B
+                                }
+                                ctx.putImageData(imageData, 0, 0);
+                            }
+
+                            // Mostrar en el canvas de debug
+                            const previewCanvas = document.getElementById('previewCanvas');
+                            previewCanvas.width = width;
+                            previewCanvas.height = height;
+                            const pCtx = previewCanvas.getContext('2d');
+                            pCtx.drawImage(canvas, 0, 0);
+                            
+                            // Convertir a blob para Tesseract
+                            canvas.toBlob(blob => resolve(blob));
+                        };
+                        img.onerror = reject;
+                        img.src = URL.createObjectURL(file);
+                    });
+                },
+
+                runTesseract: async (imageBlob, progressCallback) => {
+                    const worker = await Tesseract.createWorker('spa'); 
+                    // Nota: En prod, especificar logger para ver progreso
+                    
+                    // Configurar parámetros (whitelist opcional si solo buscamos números, pero facturas tienen texto)
+                    await worker.setParameters({
+                        tessedit_pageseg_mode: Tesseract.PSM.AUTO,
+                    });
+
+                    const ret = await worker.recognize(imageBlob);
+                    await worker.terminate();
+                    return ret.data;
+                }
+            },
+
+            // --- MÓDULO EXTRACTOR (HEURÍSTICAS) ---
+            extractor: {
+                cleanPrice: (str) => {
+                    if (!str) return '';
+                    // Eliminar símbolos de moneda y espacios
+                    let clean = str.replace(/[S\/$€USDsoles]/gi, '').trim();
+                    // Intentar normalizar formato 1.200,00 vs 1,200.00
+                    // Asumimos que si hay coma y punto, el último es el decimal.
+                    // Si solo hay coma o punto, y son 2 decimales, es separador decimal.
+                    // Estandarizar a formato JS: sin separador de miles, punto para decimales.
+                    
+                    // Caso 1: 1.000,00
+                    if (clean.includes('.') && clean.includes(',') && clean.lastIndexOf(',') > clean.lastIndexOf('.')) {
+                        clean = clean.replace(/\./g, '').replace(',', '.');
+                    }
+                    // Caso 2: 1,000.00
+                    else if (clean.includes(',') && clean.includes('.') && clean.lastIndexOf('.') > clean.lastIndexOf(',')) {
+                        clean = clean.replace(/,/g, '');
+                    }
+                    // Caso 3: 1200,00
+                    else if (clean.includes(',') && !clean.includes('.')) {
+                        clean = clean.replace(',', '.');
+                    }
+                    
+                    return parseFloat(clean).toFixed(2);
+                },
+
+                parse: (text, type) => {
+                    const lines = text.split('\n');
+                    const data = {};
+
+                    // 1. RUC / DNI
+                    // Busca 11 dígitos empezando por 10 o 20 (RUC Perú)
+                    const rucMatch = text.match(/(?:RUC|R\.U\.C\.?)\s*[:.\-]?\s*([12]0\d{9})/i);
+                    if (rucMatch) {
+                        data.ruc_dni = rucMatch[1];
+                        data.tipo = "FACTURA"; // Si hay RUC suele ser factura o boleta con RUC
+                    } else {
+                        // Buscar DNI
+                        const dniMatch = text.match(/(?:DNI|D\.N\.I\.?)\s*[:.\-]?\s*(\d{8})/i);
+                        if (dniMatch) data.ruc_dni = dniMatch[1];
+                    }
+
+                    // 2. FECHA
+                    // dd/mm/yyyy o dd-mm-yyyy
+                    const dateMatch = text.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/);
+                    if (dateMatch) {
+                        data.fecha_emision = `${dateMatch[1]}/${dateMatch[2]}/${dateMatch[3]}`;
+                    }
+
+                    // 3. SERIE Y NÚMERO
+                    // F001-0000234 o E001-123
+                    const serieMatch = text.match(/([FB][A-Z0-9]{2,3})\s*-\s*(\d{1,8})/);
+                    if (serieMatch) {
+                        data.serie = serieMatch[1];
+                        data.numero = serieMatch[2];
+                        data.tipo = data.serie.startsWith('F') ? 'FACTURA' : 'BOLETA';
+                    }
+
+                    // 4. TOTALES Y IMPORTES
+                    // Estrategia: Buscar palabras clave y tomar el número que esté a la derecha o abajo
+                    
+                    const findAmount = (keywords) => {
+                        // Regex para encontrar montos monetarios simples
+                        const amountRegex = /(\d{1,3}(?:[.,]\d{3})*[.,]\d{2})/; 
+                        
+                        for (let i = 0; i < lines.length; i++) {
+                            const line = lines[i].toUpperCase();
+                            if (keywords.some(k => line.includes(k))) {
+                                // Buscar número en la misma línea
+                                let match = line.match(amountRegex);
+                                if (match) return app.extractor.cleanPrice(match[0]);
+                                
+                                // Si no, buscar en la siguiente línea (a veces el formato es vertical)
+                                if (i + 1 < lines.length) {
+                                    let nextMatch = lines[i+1].match(amountRegex);
+                                    if (nextMatch) return app.extractor.cleanPrice(nextMatch[0]);
+                                }
+                            }
+                        }
+                        return '';
+                    };
+
+                    data.total = findAmount(["TOTAL", "IMPORTE TOTAL", "NETO A PAGAR"]);
+                    data.igv = findAmount(["IGV", "I.G.V", "18%"]);
+                    data.subtotal = findAmount(["SUBTOTAL", "OP. GRAVADA", "VALOR VENTA", "BASE IMPONIBLE"]);
+                    data.detraccion = findAmount(["DETRACCI", "SPOT"]);
+
+                    // 5. MONEDA
+                    if (text.match(/USD|DOLARES|\$/i)) data.moneda = 'USD';
+                    else if (text.match(/SOLES|PEN|S\//i)) data.moneda = 'PEN';
+                    else data.moneda = 'PEN'; // Default Perú
+
+                    // 6. RAZÓN SOCIAL (Intento básico)
+                    // Generalmente las primeras líneas. Si encontramos el RUC, la línea anterior suele ser la empresa.
+                    if (rucMatch) {
+                        const rucIndex = text.indexOf(rucMatch[0]);
+                        const textBefore = text.substring(0, rucIndex).split('\n');
+                        // Tomar la línea más larga no vacía antes del RUC
+                        const candidates = textBefore.filter(l => l.trim().length > 4 && !l.includes('electronic'));
+                        if (candidates.length > 0) {
+                            data.razon_social = candidates[candidates.length - 1].trim();
+                        }
+                    }
+
+                    return data;
+                }
+            },
+
+            // --- MÓDULO EXPORTACIÓN ---
+            
+            sendAllToSheets: async () => {
+                const url = document.getElementById('sheetsUrl').value;
+                if (!url) {
+                    Swal.fire('Error', 'Debes configurar la URL del Google Apps Script primero.', 'error');
+                    return;
+                }
+
+                // Filtrar datos listos
+                const rowsToSend = app.state.files
+                    .filter(f => f.status === 'done' || f.status === 'processing') // Permitir enviar editados manuales
+                    .map(f => ({ ...f.data, filename: f.file.name }));
+
+                if (rowsToSend.length === 0) {
+                    Swal.fire('Atención', 'No hay datos procesados para enviar.', 'warning');
+                    return;
+                }
+
+                Swal.fire({
+                    title: 'Enviando...',
+                    text: `Enviando ${rowsToSend.length} facturas a Google Sheets`,
+                    didOpen: () => Swal.showLoading()
+                });
+
+                try {
+                    // Usamos no-cors porque GAS suele dar problemas de CORS con json directo desde cliente
+                    // Sin embargo, para recibir respuesta necesitamos text/plain y parsear en GAS
+                    await fetch(url, {
+                        method: 'POST',
+                        mode: 'no-cors', // Importante para GAS simple
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(rowsToSend)
+                    });
+
+                    Swal.fire('Éxito', 'Los datos se han enviado (Revisa tu hoja de cálculo).', 'success');
+                } catch (e) {
+                    Swal.fire('Error', 'Fallo al enviar: ' + e.message, 'error');
+                }
+            },
+
+            exportToCSV: () => {
+                const rows = app.state.files.map(f => f.data);
+                if (rows.length === 0) return;
+
+                const headers = ["Fecha", "RUC", "Razón Social", "Tipo", "Serie", "Num", "Moneda", "Subtotal", "IGV", "Total", "Detraccion", "Obs"];
+                const csvContent = [
+                    headers.join(','),
+                    ...rows.map(r => [
+                        r.fecha_emision, r.ruc_dni, `"${r.razon_social}"`, r.tipo, 
+                        r.serie, r.numero, r.moneda, r.subtotal, r.igv, r.total, r.detraccion, `"${r.observaciones}"`
+                    ].join(','))
+                ].join('\n');
+
+                const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+                const link = document.createElement("a");
+                link.href = URL.createObjectURL(blob);
+                link.download = "facturas_ocr.csv";
+                link.click();
+            },
+
+            // --- UI HELPERS ---
+            ui: {
+                log: (msg) => {
+                    const panel = document.getElementById('logPanel');
+                    panel.classList.remove('hidden');
+                    const line = document.createElement('div');
+                    line.textContent = `> ${msg}`;
+                    panel.appendChild(line);
+                    panel.scrollTop = panel.scrollHeight;
+                },
+
+                updateGlobalProgress: () => {
+                    const total = app.state.files.length;
+                    const done = app.state.files.filter(f => f.status === 'done' || f.status === 'error').length;
+                    document.getElementById('queueCount').innerText = `${done}/${total}`;
+                    const pct = total === 0 ? 0 : (done / total) * 100;
+                    document.getElementById('globalProgress').style.width = `${pct}%`;
+                },
+
+                showPreview: (fileObj) => {
+                    const img = document.getElementById('previewImg');
+                    img.src = fileObj.blobUrl;
+                },
+
+                updateRowStatus: (id, status) => {
+                    const badge = document.querySelector(`tr[data-id="${id}"] .status-badge`);
+                    if (!badge) return;
+                    
+                    badge.className = `status-badge status-${status}`;
+                    if (status === 'processing') {
+                        badge.innerHTML = '<div class="loader"></div>';
+                    } else {
+                        badge.innerText = status;
+                    }
+                },
+
+                updateRowData: (id) => {
+                    const fileObj = app.state.files.find(f => f.id === id);
+                    if (!fileObj) return;
+                    const tr = document.querySelector(`tr[data-id="${id}"]`);
+                    if (!tr) return;
+
+                    // Actualizar inputs con datos extraídos
+                    const inputs = tr.querySelectorAll('input');
+                    inputs.forEach(input => {
+                        const field = input.name;
+                        if (fileObj.data[field]) input.value = fileObj.data[field];
+                        
+                        // Validación visual básica
+                        if (['fecha_emision', 'ruc_dni', 'total'].includes(field) && !input.value) {
+                            input.classList.add('validation-error');
+                        } else {
+                            input.classList.remove('validation-error');
+                        }
+                    });
+                    
+                    app.ui.calculateSum();
+                },
+                
+                calculateSum: () => {
+                    let sum = 0;
+                    app.state.files.forEach(f => {
+                         let val = parseFloat(f.data.total);
+                         if (!isNaN(val)) sum += val;
+                    });
+                    document.getElementById('sumTotal').innerText = sum.toFixed(2);
+                },
+
+                deleteRow: (id) => {
+                    app.state.files = app.state.files.filter(f => f.id !== id);
+                    app.ui.renderTable();
+                    app.ui.updateGlobalProgress();
+                    app.ui.calculateSum();
+                },
+
+                renderTable: () => {
+                    const tbody = document.getElementById('dataTableBody');
+                    tbody.innerHTML = '';
+
+                    app.state.files.forEach(fileObj => {
+                        const tr = document.createElement('tr');
+                        tr.setAttribute('data-id', fileObj.id);
+                        
+                        // Generar celdas editables
+                        const createInput = (field, val, width = 'w-full') => 
+                            `<input type="text" name="${field}" value="${val || ''}" onchange="app.updateField('${fileObj.id}', '${field}', this.value)">`;
+
+                        tr.innerHTML = `
+                            <td class="text-center">
+                                <button onclick="app.ui.deleteRow('${fileObj.id}')" class="text-red-500 hover:text-red-700"><i class="ph ph-trash"></i></button>
+                            </td>
+                            <td><span class="status-badge status-${fileObj.status}">${fileObj.status}</span></td>
+                            <td>${createInput('fecha_emision', fileObj.data.fecha_emision)}</td>
+                            <td>${createInput('ruc_dni', fileObj.data.ruc_dni)}</td>
+                            <td>${createInput('razon_social', fileObj.data.razon_social)}</td>
+                            <td>${createInput('tipo', fileObj.data.tipo)}</td>
+                            <td>${createInput('serie', fileObj.data.serie)}</td>
+                            <td>${createInput('numero', fileObj.data.numero)}</td>
+                            <td>${createInput('moneda', fileObj.data.moneda)}</td>
+                            <td>${createInput('subtotal', fileObj.data.subtotal)}</td>
+                            <td>${createInput('igv', fileObj.data.igv)}</td>
+                            <td class="bg-blue-50 font-bold">${createInput('total', fileObj.data.total)}</td>
+                            <td>${createInput('detraccion', fileObj.data.detraccion)}</td>
+                            <td class="text-xs text-slate-500 truncate max-w-[100px]" title="${fileObj.file.name}">${fileObj.file.name}</td>
+                            <td>${createInput('observaciones', fileObj.data.observaciones)}</td>
+                        `;
+                        
+                        // Click en fila para ver imagen
+                        tr.addEventListener('click', (e) => {
+                            if(e.target.tagName !== 'INPUT' && e.target.tagName !== 'BUTTON') {
+                                app.ui.showPreview(fileObj);
+                            }
+                        });
+                        
+                        tbody.appendChild(tr);
+                    });
+                    app.ui.calculateSum();
+                }
+            },
+            
+            // Helper para actualizar modelo desde UI
+            updateField: (id, field, value) => {
+                const f = app.state.files.find(x => x.id === id);
+                if (f) {
+                    f.data[field] = value;
+                    app.ui.calculateSum();
+                    
+                    // Quitar error si se llena
+                    if(value) {
+                       const input = document.querySelector(`tr[data-id="${id}"] input[name="${field}"]`);
+                       if(input) input.classList.remove('validation-error');
+                    }
+                }
+            }
+        };
+
+        // Arrancar
+        document.addEventListener('DOMContentLoaded', app.init);
+
+    </script>
+</body>
+</html>
