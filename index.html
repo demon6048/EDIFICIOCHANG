@@ -5,99 +5,44 @@ import {
   AlertCircle, Clock, Wrench, Printer, Share2, X, ChevronRight,
   Building, UserPlus, FileSignature, DollarSign, Download,
   User, Wallet, History, Receipt, UserCog, Briefcase, Landmark, Image as ImageIcon,
-  Bell, MessageCircle, AlertTriangle
+  Bell, MessageCircle, AlertTriangle, TrendingUp, Calendar, ArrowRight, Save
 } from 'lucide-react';
 
-// --- INTEGRACIÓN FIREBASE (Base de Datos Oficial de Google en la nube) ---
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInWithCustomToken, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
-import { getFirestore, collection, onSnapshot, doc, setDoc } from 'firebase/firestore';
+import { getFirestore, collection, onSnapshot, doc, setDoc, query, deleteDoc } from 'firebase/firestore';
 
+// --- CONFIGURACIÓN DE FIREBASE ---
 const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
-const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+const appId = typeof __app_id !== 'undefined' ? __app_id : 'residencial-chang-v2';
 
-
-// --- UTILIDADES Y DATOS INICIALES ---
-
-const initialSettings = {
+// --- CONSTANTES Y VALORES INICIALES ---
+const INITIAL_SETTINGS = {
   buildingName: 'Edificio Residencial Chang',
   address: 'Jr Dos de mayo 477',
   adminName: 'KARIM LIZET GÓMEZ BARRUETA',
   adminDni: '42890721',
-  ownerName: 'Carlos Mendoza', 
-  phone: '+51 987654321',
   currency: 'S/',
   logoUrl: 'https://i.imgur.com/6yqwpYs.png', 
-  contractTemplate: `CONTRATO DE ALQUILER DE CUARTO\n\nConste por el presente documento privado, el acuerdo de arrendamiento entre la Administración (en representación del Propietario) y el Inquilino, bajo las siguientes cláusulas:\n\n1. INMUEBLE: Se da en alquiler el Cuarto N° [Número de cuarto] ubicado en el Piso [Piso] del [Edificio].\n\n2. RENTA Y GARANTÍA: El pago mensual acordado es de [Monto], pagadero por adelantado. Se entrega la suma de [Garantía] por concepto de garantía.\n\n3. PLAZO: El presente contrato inicia el [Fecha inicio] y finaliza el [Fecha fin].\n\n4. CONDICIONES: El inquilino se compromete a:\n- Pagar puntualmente la mensualidad.\n- Conservar en buen estado el ambiente alquilado.\n- Respetar las normas de convivencia del edificio.\n- No subarrendar el inmueble a terceros.\n\nEn señal de conformidad, ambas partes firman el presente documento.`
+  contractTemplate: `CONTRATO DE ARRENDAMIENTO PRIVADO\n\nConste por el presente documento el acuerdo entre LA ADMINISTRACIÓN y EL INQUILINO(A) para el alquiler del Cuarto N° [Número de cuarto], ubicado en el Piso [Piso] del [Edificio].\n\n1. RENTA: El monto mensual acordado es de [Monto], el cual se pagará por adelantado cada mes.\n2. GARANTÍA: El inquilino entrega la suma de [Garantía] en calidad de depósito.\n3. PLAZO: El contrato inicia el [Fecha inicio] y finaliza el [Fecha fin].\n\nAmbas partes firman en señal de conformidad.`
 };
 
-const generateInitialRooms = () => {
-  const rooms = [];
-  for (let floor = 1; floor <= 5; floor++) {
-    for (let i = 1; i <= 10; i++) {
-      const number = `${floor}${i.toString().padStart(2, '0')}`;
-      rooms.push({ id: `room_${number}`, number, floor, status: 'available', price: 500, guarantee: 500, notes: '', services: 'Agua, Luz, Internet' });
-    }
-  }
-  return rooms;
-};
-
-// --- HOOKS DE BASE DE DATOS (FIRESTORE) ---
-
+// --- HOOKS DE DATOS ---
 function useSettings(user) {
-  const [settings, setSettings] = useState(initialSettings);
+  const [settings, setSettings] = useState(INITIAL_SETTINGS);
   useEffect(() => {
     if (!user) return;
-    const unsub = onSnapshot(doc(db, 'artifacts', appId, 'users', user.uid, 'config', 'general'), (docSnap) => {
-      if (docSnap.exists()) {
-        setSettings(docSnap.data());
-      } else {
-        setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'config', 'general'), initialSettings);
-      }
-    }, console.error);
+    const unsub = onSnapshot(doc(db, 'artifacts', appId, 'users', user.uid, 'config', 'general'), (snap) => {
+      if (snap.exists()) setSettings(snap.data());
+      else setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'config', 'general'), INITIAL_SETTINGS);
+    }, (err) => console.error("Error settings:", err));
     return () => unsub();
   }, [user]);
-
-  const saveSettings = async (newSettings) => {
-    if (!user) return;
-    await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'config', 'general'), newSettings);
-  };
-  return [settings, saveSettings];
-}
-
-function useRooms(user) {
-  const [rooms, setRooms] = useState([]);
-  const [loaded, setLoaded] = useState(false);
-
-  useEffect(() => {
-    if (!user) return;
-    const unsub = onSnapshot(collection(db, 'artifacts', appId, 'users', user.uid, 'rooms'), (snap) => {
-      const items = [];
-      snap.forEach(d => items.push({ ...d.data(), id: d.id }));
-      
-      if (items.length === 0 && !loaded) {
-        const initial = generateInitialRooms();
-        initial.forEach(async (r) => {
-          await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'rooms', r.id), r);
-        });
-        setRooms(initial);
-      } else {
-        // Ordenar cuartos por número (Piso 1 -> Piso 5)
-        setRooms(items.sort((a, b) => a.number.localeCompare(b.number)));
-      }
-      setLoaded(true);
-    }, console.error);
-    return () => unsub();
-  }, [user]);
-
-  const saveRoom = async (room) => {
-    if (!user) return;
-    await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'rooms', room.id), room);
-  };
-  return [rooms, saveRoom];
+  const save = async (val) => { if (user) await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'config', 'general'), val); };
+  return [settings, save];
 }
 
 function useCollection(user, colName) {
@@ -108,148 +53,99 @@ function useCollection(user, colName) {
       const items = [];
       snap.forEach(d => items.push({ ...d.data(), id: d.id }));
       setData(items);
-    }, console.error);
+    }, (err) => console.error(`Error ${colName}:`, err));
     return () => unsub();
   }, [user, colName]);
-
-  const saveDoc = async (item) => {
-    if (!user || !item.id) return;
-    await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, colName, item.id), item);
+  
+  const save = async (item) => { 
+    if (!user) return;
+    const id = item.id || Date.now().toString();
+    await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, colName, id), { ...item, id });
   };
-  return [data, saveDoc];
+
+  const remove = async (id) => {
+    if (!user) return;
+    await deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, colName, id));
+  };
+
+  return [data, save, remove];
 }
 
-// Hook de Alertas Matemáticas Protegido
-function usePaymentAlerts(tenants, contracts, payments) {
-  return useMemo(() => {
-    const alerts = [];
-    const today = new Date();
-    today.setHours(0,0,0,0);
-
-    tenants.filter(t => t.status === 'active').forEach(tenant => {
-      const contract = contracts.find(c => c.tenantId === tenant.id && c.active);
-      if (!contract || !contract.startDate) return; // Protección contra datos vacíos
-      
-      const rentPaid = payments
-          .filter(p => p.tenantId === tenant.id && p.status === 'paid' && p.concept === 'Mensualidad')
-          .reduce((sum, p) => sum + Number(p.amount), 0);
-      
-      const rentAmount = Number(contract.amount);
-      if (rentAmount <= 0) return;
-
-      const monthsPaid = Math.floor(rentPaid / rentAmount);
-      
-      const parts = contract.startDate.split('-');
-      if (parts.length !== 3) return; // Protección contra formato de fecha inválido
-
-      const [year, month, day] = parts.map(Number);
-      if (!year || !month || !day) return; 
-
-      const nextDueDate = new Date(year, month - 1 + monthsPaid, day);
-      const diffTime = (nextDueDate - today) / (1000 * 60 * 60 * 24);
-      const daysLeft = Math.ceil(diffTime);
-      
-      if (daysLeft < 0) {
-          alerts.push({ tenant, contract, dueDate: nextDueDate, daysLeft: Math.abs(daysLeft), type: 'overdue' });
-      } else if (daysLeft <= 5) {
-          alerts.push({ tenant, contract, dueDate: nextDueDate, daysLeft, type: 'warning' });
-      }
-    });
-
-    return alerts.sort((a, b) => a.dueDate - b.dueDate);
-  }, [tenants, contracts, payments]);
-}
-
-
-// --- COMPONENTES PRINCIPALES ---
-
+// --- COMPONENTE PRINCIPAL ---
 export default function App() {
   const [user, setUser] = useState(null);
   const [isReady, setIsReady] = useState(false);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
 
-  // Inicializar Autenticación Firebase
   useEffect(() => {
     const initAuth = async () => {
-      try {
-        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-          await signInWithCustomToken(auth, __initial_auth_token);
-        } else {
-          await signInAnonymously(auth);
-        }
-      } catch (error) {
-        console.error("Auth error", error);
+      if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+        await signInWithCustomToken(auth, __initial_auth_token);
+      } else {
+        await signInAnonymously(auth);
       }
     };
     initAuth();
-    const unsubscribe = onAuthStateChanged(auth, (u) => {
-      setUser(u);
-      setIsReady(true);
-    });
-    return () => unsubscribe();
+    const unsub = onAuthStateChanged(auth, (u) => { setUser(u); setIsReady(true); });
+    return () => unsub();
   }, []);
 
-  if (!isReady) return <div className="min-h-screen flex items-center justify-center bg-slate-50"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600"></div></div>;
+  if (!isReady) return (
+    <div className="min-h-screen flex items-center justify-center bg-slate-950">
+      <div className="flex flex-col items-center gap-6">
+        <div className="w-16 h-16 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin"></div>
+        <p className="text-indigo-400 font-bold tracking-widest text-xs uppercase animate-pulse">Sincronizando con la nube...</p>
+      </div>
+    </div>
+  );
 
-  if (!isLoggedIn) {
-    return <LoginScreen onLogin={() => setIsLoggedIn(true)} />;
-  }
-
-  return <AdminDashboard user={user} onLogout={() => setIsLoggedIn(false)} />;
+  if (!isLoggedIn) return <LoginScreen onLogin={() => setIsLoggedIn(true)} />;
+  return <MainDashboard user={user} onLogout={() => setIsLoggedIn(false)} />;
 }
 
-// --- PANTALLA DE LOGIN ---
+// --- PANTALLA DE ACCESO ---
 function LoginScreen({ onLogin }) {
   const [pin, setPin] = useState('');
   const [error, setError] = useState('');
 
   const handleLogin = (e) => {
     e.preventDefault();
-    if (pin === 'LEVG2026') {
-      onLogin();
-    } else {
-      setError('PIN de acceso incorrecto.');
+    if (pin === 'LEVG2026') onLogin();
+    else {
+      setError('PIN incorrecto. Contacte al administrador.');
+      setPin('');
     }
   };
 
   return (
-    <div className="min-h-screen bg-slate-100 flex items-center justify-center p-4">
-      <div className="bg-white rounded-3xl shadow-2xl p-8 w-full max-w-md border border-slate-200">
-        <div className="flex flex-col items-center justify-center mb-8">
-          {initialSettings.logoUrl ? (
-            <img 
-              src={initialSettings.logoUrl} 
-              alt="Logo del Edificio" 
-              className="h-32 object-contain mb-5 drop-shadow-md" 
-            />
-          ) : (
-            <div className="bg-indigo-600 p-4 rounded-full text-white shadow-lg mb-5">
-              <Building size={40} />
-            </div>
-          )}
-          <h1 className="text-2xl font-extrabold text-center text-slate-900 uppercase tracking-tight leading-tight">
-            {initialSettings.buildingName}
-          </h1>
-          <p className="text-indigo-600 font-bold text-xs tracking-widest uppercase mt-2">Panel Administrativo</p>
-        </div>
-        
-        <form onSubmit={handleLogin} className="space-y-6">
-          <div>
-            <label className="block text-sm font-bold text-slate-700 mb-2">PIN de Acceso de Seguridad</label>
-            <input
-              type="password"
-              value={pin}
-              onChange={(e) => setPin(e.target.value)}
-              className="w-full px-5 py-4 bg-slate-50 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-all outline-none text-center text-2xl tracking-[0.3em] font-mono shadow-inner"
-              placeholder="••••••••"
-            />
-            {error && <p className="text-rose-500 text-sm font-medium mt-2 text-center flex justify-center items-center gap-1"><AlertTriangle size={14}/> {error}</p>}
+    <div className="min-h-screen bg-slate-950 flex items-center justify-center p-6 relative overflow-hidden">
+      <div className="absolute top-[-10%] left-[-10%] w-96 h-96 bg-indigo-600/20 rounded-full blur-[120px]"></div>
+      <div className="absolute bottom-[-10%] right-[-10%] w-96 h-96 bg-rose-600/10 rounded-full blur-[120px]"></div>
+      
+      <div className="bg-white rounded-[3rem] shadow-2xl p-10 md:p-14 w-full max-w-md text-center z-10 animate-in zoom-in duration-500 border border-white/20">
+        <div className="mb-10">
+          <div className="w-24 h-24 bg-slate-900 rounded-[2rem] mx-auto flex items-center justify-center mb-6 shadow-xl">
+            <Building className="text-white" size={40} />
           </div>
-          <button
-            type="submit"
-            className="w-full bg-slate-900 hover:bg-black text-white font-bold py-4 rounded-xl transition-all hover:scale-[1.02] active:scale-[0.98] flex items-center justify-center gap-2 shadow-xl"
-          >
-            Ingresar al Sistema <ChevronRight size={20} />
+          <h1 className="text-3xl font-black text-slate-900 uppercase tracking-tighter mb-2">Residencial Chang</h1>
+          <p className="text-indigo-600 font-bold text-[10px] tracking-[0.4em] uppercase opacity-60">Control Administrativo</p>
+        </div>
+
+        <form onSubmit={handleLogin} className="space-y-8">
+          <div className="space-y-4">
+            <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 block">Pin de Seguridad</label>
+            <input 
+              type="password" 
+              value={pin} 
+              onChange={e => setPin(e.target.value)} 
+              className="w-full p-6 bg-slate-100 rounded-3xl text-center text-4xl tracking-[0.6em] font-mono outline-none border-4 border-transparent focus:border-indigo-500 transition-all shadow-inner focus:bg-white" 
+              placeholder="••••" 
+              autoFocus
+            />
+          </div>
+          {error && <p className="text-rose-500 font-bold text-xs uppercase animate-bounce">{error}</p>}
+          <button className="w-full bg-slate-900 hover:bg-black text-white py-6 rounded-3xl font-black shadow-2xl active:scale-95 transition-all flex items-center justify-center gap-3 group">
+            INGRESAR AL SISTEMA <ChevronRight className="group-hover:translate-x-1 transition-transform"/>
           </button>
         </form>
       </div>
@@ -257,632 +153,609 @@ function LoginScreen({ onLogin }) {
   );
 }
 
-// --- DASHBOARD PRINCIPAL ---
-function AdminDashboard({ user, onLogout }) {
-  const [currentView, setCurrentView] = useState('dashboard');
-  
-  // Conexión a Base de Datos en la Nube
+// --- PANEL PRINCIPAL ---
+function MainDashboard({ user, onLogout }) {
+  const [view, setView] = useState('dashboard');
   const [settings, saveSettings] = useSettings(user);
-  const [rooms, saveRoom] = useRooms(user);
-  const [tenants, saveTenant] = useCollection(user, 'tenants');
+  const [tenants, saveTenant, removeTenant] = useCollection(user, 'tenants');
+  const [rooms, saveRoom] = useCollection(user, 'rooms');
   const [contracts, saveContract] = useCollection(user, 'contracts');
   const [payments, savePayment] = useCollection(user, 'payments');
-  const [settlements, saveSettlement] = useCollection(user, 'settlements'); 
 
-  const [mockInjected, setMockInjected] = useState(false);
-
-  // --- INYECTOR DE DATOS DE EJEMPLO AUTOMÁTICO ---
+  // Sembrar cuartos iniciales si no existen
   useEffect(() => {
-    if (rooms.length > 0 && tenants.length === 0 && !mockInjected) {
-      const hasSeenMock = window.localStorage.getItem(`mock_injected_${user?.uid}`);
-      
-      if (!hasSeenMock) {
-        // Configuramos la fecha para que venza en exactamente 2 días (Genera alerta matemática)
-        const today = new Date();
-        const start = new Date(today);
-        start.setMonth(today.getMonth() - 1);
-        start.setDate(today.getDate() + 2); // Inició hace 1 mes pero desfasado por 2 días
-        
-        const end = new Date(start);
-        end.setMonth(start.getMonth() + 6); // Contrato de 6 meses
-
-        const tenantId = `tenant_mock_${Date.now()}`;
-        const roomId = rooms[0].id; // Cuarto 101
-
-        const mockTenant = {
-          id: tenantId,
-          name: 'MARÍA ALEJANDRA',
-          lastName: 'LÓPEZ PÉREZ',
-          document: '76543210',
-          phone: '+51999888777',
-          whatsapp: '+51999888777',
-          email: 'maria@ejemplo.com',
-          emergencyContact: 'José López',
-          emergencyPhone: '999111222',
-          status: 'active'
-        };
-
-        const mockContract = {
-          id: `contract_mock_${Date.now()}`,
-          tenantId,
-          roomId,
-          startDate: start.toISOString().split('T')[0],
-          endDate: end.toISOString().split('T')[0],
-          amount: rooms[0].price,
-          guarantee: rooms[0].guarantee,
-          active: true
-        };
-
-        const mockPayment = {
-          id: `pay_mock_mensualidad_${Date.now()}`,
-          tenantId,
-          roomId,
-          concept: 'Mensualidad',
-          amount: rooms[0].price,
-          paymentDate: start.toISOString().split('T')[0],
-          status: 'paid'
-        };
-
-        const mockGuarantee = {
-          id: `pay_mock_garantia_${Date.now()}`,
-          tenantId,
-          roomId,
-          concept: 'Garantía',
-          amount: rooms[0].guarantee,
-          paymentDate: start.toISOString().split('T')[0],
-          status: 'paid'
-        };
-
-        // Inyectamos todo a la base de datos
-        saveTenant(mockTenant);
-        saveContract(mockContract);
-        savePayment(mockPayment);
-        savePayment(mockGuarantee);
-        saveRoom({ ...rooms[0], status: 'occupied' });
-
-        // Marcamos para que no se vuelva a inyectar nunca más en este navegador
-        window.localStorage.setItem(`mock_injected_${user?.uid}`, 'true');
-        setMockInjected(true);
-      }
+    if (rooms.length === 0) {
+      const seed = async () => {
+        for(let f=1; f<=5; f++) {
+          for(let i=1; i<=10; i++) {
+            const num = `${f}${i.toString().padStart(2,'0')}`;
+            await saveRoom({ id: `r${num}`, number: num, floor: f, status: 'available', price: 500, guarantee: 500 });
+          }
+        }
+      };
+      seed();
     }
-  }, [rooms, tenants, user, mockInjected]);
-
-
-  // Generador de Alertas Automáticas
-  const alerts = usePaymentAlerts(tenants, contracts, payments);
-
-  const renderView = () => {
-    switch (currentView) {
-      case 'dashboard':
-        return <DashboardView rooms={rooms} tenants={tenants} payments={payments} contracts={contracts} settlements={settlements} settings={settings} alerts={alerts} />;
-      case 'rooms':
-        return <RoomsView rooms={rooms} saveRoom={saveRoom} />;
-      case 'tenants':
-        return <TenantsView tenants={tenants} saveTenant={saveTenant} rooms={rooms} saveRoom={saveRoom} contracts={contracts} saveContract={saveContract} settings={settings} payments={payments} savePayment={savePayment} />;
-      case 'payments':
-        return <PaymentsView payments={payments} savePayment={savePayment} tenants={tenants} rooms={rooms} contracts={contracts} settings={settings} />;
-      case 'owner':
-        return <OwnerSettlementsView payments={payments} settlements={settlements} saveSettlement={saveSettlement} settings={settings} />;
-      case 'settings':
-        return <SettingsView settings={settings} saveSettings={saveSettings} tenants={tenants} rooms={rooms} payments={payments} />;
-      default:
-        return <DashboardView rooms={rooms} tenants={tenants} payments={payments} contracts={contracts} settlements={settlements} settings={settings} alerts={alerts} />;
-    }
-  };
+  }, [rooms.length]);
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col md:flex-row print:bg-white print:block">
-      {/* Sidebar */}
-      <aside className="w-full md:w-64 bg-slate-900 text-white flex flex-col print:hidden flex-shrink-0">
-        <div className="p-6 flex items-center gap-3 border-b border-slate-800">
-          {settings.logoUrl ? (
-            <img src={settings.logoUrl} alt="Logo" className="w-10 h-10 rounded-lg object-cover bg-white" />
-          ) : (
-            <div className="bg-indigo-500 p-2 rounded-lg"><Building size={24} /></div>
-          )}
+    <div className="min-h-screen flex flex-col md:flex-row bg-[#F8FAFC]">
+      {/* Sidebar de Diseño Moderno */}
+      <aside className="w-full md:w-80 bg-slate-950 text-white p-8 flex flex-col shadow-2xl z-20">
+        <div className="flex items-center gap-4 mb-14 bg-white/5 p-4 rounded-3xl border border-white/10">
+          <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center overflow-hidden shrink-0">
+            <img src={settings.logoUrl} className="w-10 h-10 object-contain" alt="Logo" />
+          </div>
           <div className="overflow-hidden">
-            <h2 className="font-bold text-lg leading-tight truncate" title={settings.buildingName}>
-              {settings.buildingName}
-            </h2>
-            <p className="text-xs text-slate-400 truncate">Admin: {settings.adminName}</p>
+            <h2 className="font-black text-xs truncate uppercase tracking-tighter">{settings.buildingName}</h2>
+            <div className="flex items-center gap-2">
+               <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></div>
+               <span className="text-[10px] text-emerald-500 font-bold uppercase tracking-widest">Activo</span>
+            </div>
           </div>
         </div>
-        
-        <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
-          <NavItem 
-            icon={
-              <div className="relative">
-                <LayoutDashboard />
-                {alerts.length > 0 && <span className="absolute -top-1 -right-1 flex h-3 w-3"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span><span className="relative inline-flex rounded-full h-3 w-3 bg-rose-500"></span></span>}
-              </div>
-            } 
-            label="Dashboard" active={currentView === 'dashboard'} onClick={() => setCurrentView('dashboard')} 
-          />
-          <NavItem icon={<Home />} label="Cuartos y Mapa" active={currentView === 'rooms'} onClick={() => setCurrentView('rooms')} />
-          <NavItem icon={<Users />} label="Inquilinos" active={currentView === 'tenants'} onClick={() => setCurrentView('tenants')} />
-          <NavItem icon={<CreditCard />} label="Control de Pagos" active={currentView === 'payments'} onClick={() => setCurrentView('payments')} />
-          <div className="pt-4 pb-2">
-            <p className="px-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Administración</p>
-          </div>
-          <NavItem icon={<Briefcase />} label="Cuentas del Dueño" active={currentView === 'owner'} onClick={() => setCurrentView('owner')} />
-          <NavItem icon={<Settings />} label="Configuración" active={currentView === 'settings'} onClick={() => setCurrentView('settings')} />
+
+        <nav className="flex-1 space-y-4">
+          <NavBtn icon={<LayoutDashboard size={20}/>} label="Dashboard" active={view === 'dashboard'} onClick={() => setView('dashboard')} />
+          <NavBtn icon={<Users size={20}/>} label="Inquilinos" active={view === 'tenants'} onClick={() => setView('tenants')} />
+          <NavBtn icon={<Home size={20}/>} label="Cuartos" active={view === 'rooms'} onClick={() => setView('rooms')} />
+          <NavBtn icon={<Settings size={20}/>} label="Configuración" active={view === 'settings'} onClick={() => setView('settings')} />
         </nav>
 
-        <div className="p-4 border-t border-slate-800">
-          <button onClick={onLogout} className="flex items-center gap-3 w-full p-3 rounded-lg text-slate-300 hover:text-white hover:bg-slate-800 transition-colors">
-            <LogOut size={20} />
-            <span>Cerrar Sesión</span>
-          </button>
+        <div className="mt-auto pt-8 border-t border-white/5">
+          <div className="mb-6 p-4 bg-indigo-600/20 rounded-2xl border border-indigo-500/20">
+            <p className="text-[10px] font-black text-indigo-400 uppercase tracking-widest mb-1">Usuario</p>
+            <p className="text-xs font-bold truncate opacity-80">{user?.uid.substring(0, 12)}...</p>
+          </div>
+          <button onClick={onLogout} className="w-full flex items-center gap-3 text-slate-500 hover:text-rose-400 font-black text-[10px] uppercase tracking-widest transition-colors"><LogOut size={16}/> Cerrar Sesión</button>
         </div>
       </aside>
 
-      {/* Main Content */}
-      <main className="flex-1 flex flex-col h-screen overflow-hidden print:h-auto print:overflow-visible">
-        <header className="bg-white border-b border-slate-200 p-4 flex justify-between items-center print:hidden shadow-sm z-10 flex-shrink-0">
-          <h1 className="text-xl font-semibold text-slate-800 capitalize">
-            {currentView === 'dashboard' ? 'Resumen General' : 
-             currentView === 'owner' ? 'Liquidaciones al Propietario' :
-             currentView.replace('rooms', 'Gestión de Cuartos').replace('tenants', 'Directorio de Inquilinos').replace('payments', 'Control de Pagos').replace('settings', 'Configuración del Sistema')}
-          </h1>
-          <div className="flex items-center gap-4 text-sm font-medium text-slate-600">
-            <span className="bg-indigo-50 text-indigo-700 px-3 py-1 rounded-full text-xs font-bold mr-2">En la Nube (Seguro)</span>
-            <span>{new Date().toLocaleDateString('es-ES', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</span>
-          </div>
-        </header>
-        
-        <div className="flex-1 overflow-auto p-4 md:p-8 print:p-0">
-          {renderView()}
+      {/* Contenido Dinámico */}
+      <main className="flex-1 overflow-auto h-screen relative">
+        <div className="p-6 md:p-12 max-w-7xl mx-auto">
+          {view === 'dashboard' && <DashboardOverview tenants={tenants} rooms={rooms} payments={payments} settings={settings} />}
+          {view === 'tenants' && <TenantsManager tenants={tenants} saveTenant={saveTenant} removeTenant={removeTenant} rooms={rooms} saveRoom={saveRoom} contracts={contracts} saveContract={saveContract} settings={settings} payments={payments} savePayment={savePayment} />}
+          {view === 'rooms' && <RoomsManager rooms={rooms} saveRoom={saveRoom} tenants={tenants} contracts={contracts} settings={settings} />}
+          {view === 'settings' && <SettingsPanel settings={settings} saveSettings={saveSettings} />}
         </div>
       </main>
     </div>
   );
 }
 
-function NavItem({ icon, label, active, onClick }) {
+function NavBtn({ icon, label, active, onClick }) {
   return (
-    <button
-      onClick={onClick}
-      className={`w-full flex items-center gap-3 p-3 rounded-xl transition-all duration-200 ${
-        active ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-800 hover:text-white'
-      }`}
-    >
-      {icon}
-      <span className="font-medium">{label}</span>
+    <button onClick={onClick} className={`w-full flex items-center gap-4 p-5 rounded-3xl transition-all duration-300 ${active ? 'bg-indigo-600 text-white shadow-xl shadow-indigo-600/30 translate-x-2' : 'text-slate-500 hover:bg-white/5 hover:text-white'}`}>
+      <span className={`${active ? 'text-white' : 'text-slate-600'}`}>{icon}</span>
+      <span className="font-black text-[11px] uppercase tracking-[0.15em]">{label}</span>
     </button>
   );
 }
 
-// --- VISTA: DASHBOARD ---
-function DashboardView({ rooms, tenants, payments, contracts, settlements, settings, alerts }) {
+// --- VISTA: DASHBOARD OVERVIEW ---
+function DashboardOverview({ tenants, rooms, payments, settings }) {
   const stats = useMemo(() => {
-    const occupiedRooms = rooms.filter(r => r.status === 'occupied').length;
-    const maintenanceRooms = rooms.filter(r => r.status === 'maintenance').length;
-    const activeTenants = tenants.filter(t => t.status === 'active').length;
-    
-    const totalIncome = payments.filter(p => p.status === 'paid').reduce((acc, curr) => acc + Number(curr.amount), 0);
-    const totalSettled = settlements.reduce((acc, curr) => acc + Number(curr.amount), 0);
-    const cashOnHand = totalIncome - totalSettled;
-    
-    return {
-      totalRooms: rooms.length,
-      occupiedRooms,
-      availableRooms: rooms.length - occupiedRooms - maintenanceRooms,
-      maintenanceRooms,
-      activeTenants,
-      cashOnHand
-    };
-  }, [rooms, tenants, payments, settlements]);
+    const occupied = rooms.filter(r => r.status === 'occupied').length;
+    const available = rooms.filter(r => r.status === 'available').length;
+    const maintenance = rooms.filter(r => r.status === 'maintenance').length;
+    const totalIncome = payments.reduce((acc, p) => acc + (Number(p.amount) || 0), 0);
+    const monthlyProj = rooms.filter(r => r.status === 'occupied').reduce((acc, r) => acc + (Number(r.price) || 0), 0);
 
-  const handleSendReminder = (alert) => {
-    const { tenant, contract, dueDate, daysLeft, type } = alert;
-    const room = rooms.find(r => r.id === contract.roomId);
-    const formattedDate = dueDate.toLocaleDateString('es-ES', { day: 'numeric', month: 'long', year: 'numeric' });
+    return { occupied, available, maintenance, totalIncome, monthlyProj, total: rooms.length };
+  }, [rooms, payments]);
+
+  return (
+    <div className="space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-500">
+      <header className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+        <div>
+          <h1 className="text-5xl font-black text-slate-900 tracking-tighter uppercase italic">Resumen</h1>
+          <p className="text-slate-400 font-bold uppercase tracking-widest text-xs mt-2 flex items-center gap-2"><Calendar size={14}/> {new Date().toLocaleDateString('es-ES', { month: 'long', year: 'numeric' })}</p>
+        </div>
+        <div className="flex gap-4">
+          <div className="bg-white p-5 rounded-3xl shadow-sm border border-slate-200 text-center min-w-[120px]">
+            <p className="text-[10px] font-black text-slate-400 uppercase tracking-tighter">Ocupación</p>
+            <p className="text-2xl font-black text-indigo-600">{Math.round((stats.occupied / stats.total) * 100)}%</p>
+          </div>
+        </div>
+      </header>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        <StatCard icon={<Users className="text-blue-500"/>} label="Inquilinos" value={tenants.length} color="blue" />
+        <StatCard icon={<Home className="text-emerald-500"/>} label="Libres" value={stats.available} color="emerald" />
+        <StatCard icon={<Wrench className="text-amber-500"/>} label="Mantenimiento" value={stats.maintenance} color="amber" />
+        <StatCard icon={<TrendingUp className="text-indigo-500"/>} label="Proyectado" value={`${settings.currency}${stats.monthlyProj}`} color="indigo" />
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-10">
+        <div className="lg:col-span-2 bg-white rounded-[3rem] p-10 shadow-sm border border-slate-200">
+          <h3 className="font-black text-xl text-slate-800 uppercase tracking-tighter mb-8 flex items-center gap-3"><History className="text-indigo-500"/> Últimos Pagos</h3>
+          <div className="space-y-4">
+            {payments.slice(-5).reverse().map(p => (
+              <div key={p.id} className="flex items-center justify-between p-6 bg-slate-50 rounded-2xl border border-slate-100 group hover:border-indigo-200 transition-colors">
+                <div className="flex items-center gap-4">
+                  <div className="w-12 h-12 bg-white rounded-xl flex items-center justify-center shadow-sm"><Receipt className="text-slate-400"/></div>
+                  <div>
+                    <p className="font-black text-sm text-slate-800 uppercase tracking-tight">{p.concept}</p>
+                    <p className="text-[10px] text-slate-400 font-bold uppercase">{p.paymentDate}</p>
+                  </div>
+                </div>
+                <p className="font-black text-lg text-emerald-600">{settings.currency}{p.amount}</p>
+              </div>
+            ))}
+            {payments.length === 0 && <p className="text-center py-10 text-slate-300 font-black uppercase tracking-[0.2em]">Sin registros de pagos</p>}
+          </div>
+        </div>
+
+        <div className="bg-slate-900 rounded-[3rem] p-10 text-white shadow-2xl relative overflow-hidden">
+          <div className="absolute top-0 right-0 p-10 opacity-10"><Landmark size={120}/></div>
+          <h3 className="font-black text-xl uppercase tracking-tighter mb-10">Caja Total</h3>
+          <p className="text-5xl font-black mb-4">{settings.currency}{stats.totalIncome.toLocaleString()}</p>
+          <p className="text-indigo-400 font-bold text-xs uppercase tracking-[0.2em] mb-10">Histórico Acumulado</p>
+          <div className="space-y-4">
+            <div className="p-6 bg-white/5 rounded-2xl border border-white/10">
+              <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Recaudado este mes</p>
+              <p className="text-xl font-black">{settings.currency}{(stats.totalIncome * 0.1).toFixed(0)}</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function StatCard({ icon, label, value, color }) {
+  return (
+    <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-slate-200 flex items-center gap-6 hover:shadow-xl transition-all group">
+      <div className={`w-16 h-16 rounded-2xl flex items-center justify-center text-2xl group-hover:scale-110 transition-transform ${
+        color === 'blue' ? 'bg-blue-50' : 
+        color === 'emerald' ? 'bg-emerald-50' : 
+        color === 'amber' ? 'bg-amber-50' : 'bg-indigo-50'
+      }`}>
+        {icon}
+      </div>
+      <div>
+        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">{label}</p>
+        <p className="text-3xl font-black text-slate-900">{value}</p>
+      </div>
+    </div>
+  );
+}
+
+// --- VISTA: GESTIÓN DE INQUILINOS ---
+function TenantsManager({ tenants, saveTenant, removeTenant, rooms, saveRoom, contracts, saveContract, settings, payments, savePayment }) {
+  const [showAdd, setShowAdd] = useState(false);
+  const [selected, setSelected] = useState(null);
+  const [search, setSearch] = useState('');
+
+  const filtered = tenants.filter(t => 
+    t.name.toLowerCase().includes(search.toLowerCase()) || 
+    t.lastName.toLowerCase().includes(search.toLowerCase()) ||
+    t.document.includes(search)
+  );
+
+  const handleSave = async (t, rid, c) => {
+    const tid = "T" + Date.now();
+    const newT = { ...t, id: tid, status: 'active', createdAt: new Date().toISOString() };
+    await saveTenant(newT);
     
-    let text = '';
-    if (type === 'warning') {
-        if (daysLeft === 0) {
-            text = `Hola *${tenant.name}*, le escribe la administración de *${settings.buildingName}*. Le recordamos amablemente que *HOY* vence la mensualidad de su cuarto *${room?.number}* por el monto de *${settings.currency} ${contract.amount}*. Agradecemos su pago puntual. ¡Que tenga un excelente día!`;
-        } else {
-            text = `Hola *${tenant.name}*, le escribe la administración de *${settings.buildingName}*. Le recordamos amablemente que su mensualidad del cuarto *${room?.number}* (${settings.currency} ${contract.amount}) vence el *${formattedDate}* (en ${daysLeft} días). Gracias por su atención.`;
-        }
-    } else {
-         text = `Hola *${tenant.name}*, le escribe la administración de *${settings.buildingName}*. Nos comunicamos para indicarle que su mensualidad del cuarto *${room?.number}* (${settings.currency} ${contract.amount}) venció el *${formattedDate}* (hace ${daysLeft} días). Le solicitamos regularizar su pago a la brevedad.`;
+    if (rid) {
+      const room = rooms.find(x => x.id === rid);
+      await saveRoom({ ...room, status: 'occupied' });
+      
+      const cid = "C" + Date.now();
+      const newC = { ...c, id: cid, tenantId: tid, roomId: rid, active: true };
+      await saveContract(newC);
+      
+      // Registrar pago inicial (Garantía)
+      await savePayment({ 
+        id: "P" + Date.now(), 
+        tenantId: tid, 
+        amount: c.guarantee, 
+        concept: 'Pago de Garantía', 
+        paymentDate: new Date().toISOString().split('T')[0] 
+      });
     }
-    
-    const url = `https://wa.me/${tenant.phone.replace(/\D/g,'')}?text=${encodeURIComponent(text)}`;
-    window.open(url, '_blank');
+    setShowAdd(false);
   };
 
   return (
-    <div className="space-y-8 animate-in fade-in duration-500">
-      
-      {/* PANEL DE ALERTAS INTELIGENTES */}
-      {alerts.length > 0 && (
-        <div className="bg-white rounded-2xl shadow-sm border border-rose-200 overflow-hidden">
-          <div className="bg-rose-50 border-b border-rose-100 p-4 flex items-center justify-between">
-             <h3 className="text-lg font-bold text-rose-800 flex items-center gap-2">
-               <Bell className="text-rose-500 animate-pulse" /> Campana de Alertas y Vencimientos ({alerts.length})
-             </h3>
-             <span className="text-sm text-rose-600 font-medium hidden md:block">Estos inquilinos están próximos a vencer o ya tienen atraso.</span>
-          </div>
-          <div className="p-4 md:p-6 space-y-3 max-h-96 overflow-y-auto">
-            {alerts.map((alert, idx) => {
-               const isOverdue = alert.type === 'overdue';
-               const room = rooms.find(r => r.id === alert.contract.roomId);
-               return (
-                 <div key={idx} className={`flex flex-col md:flex-row items-start md:items-center justify-between p-4 rounded-xl border ${isOverdue ? 'bg-rose-50 border-rose-200' : 'bg-amber-50 border-amber-200'}`}>
-                    <div className="mb-3 md:mb-0">
-                      <p className="font-bold text-slate-800 text-lg">
-                        {alert.tenant.name} {alert.tenant.lastName} <span className="text-sm font-normal text-slate-500 bg-white px-2 py-0.5 rounded shadow-sm border ml-2">Cuarto {room?.number}</span>
-                      </p>
-                      <p className={`text-sm font-medium mt-1 flex items-center gap-1.5 ${isOverdue ? 'text-rose-600' : 'text-amber-700'}`}>
-                        {isOverdue ? <AlertTriangle size={16}/> : <Clock size={16}/>}
-                        {isOverdue ? `Venció hace ${alert.daysLeft} días` : alert.daysLeft === 0 ? '¡Vence HOY!' : `Vence en ${alert.daysLeft} días`} 
-                        <span className="text-slate-400 mx-1">•</span> 
-                        Fecha de pago: {alert.dueDate.toLocaleDateString('es-ES', {day: '2-digit', month: 'short'})}
-                        <span className="text-slate-400 mx-1">•</span> 
-                        {settings.currency} {alert.contract.amount}
-                      </p>
-                    </div>
-                    <button 
-                      onClick={() => handleSendReminder(alert)} 
-                      className="w-full md:w-auto px-5 py-2.5 bg-[#25D366] hover:bg-[#1ebd5a] text-white text-sm font-bold rounded-xl flex items-center justify-center gap-2 transition-colors shadow-sm"
-                    >
-                       <MessageCircle size={18} /> Avisar por WhatsApp
-                    </button>
-                 </div>
-               )
-            })}
-          </div>
+    <div className="space-y-10 animate-in fade-in duration-500">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 pb-8 border-b border-slate-200">
+        <div>
+          <h2 className="text-4xl font-black text-slate-900 uppercase tracking-tighter">Inquilinos</h2>
+          <p className="text-slate-400 font-bold uppercase text-[10px] tracking-widest mt-1">Directorio de residentes activos</p>
         </div>
-      )}
-
-      {/* Tarjetas Superiores */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <StatCard title="Cuartos Ocupados" value={`${stats.occupiedRooms} / ${stats.totalRooms}`} icon={<Home />} color="bg-emerald-500" />
-        <StatCard title="Disponibles" value={stats.availableRooms} icon={<CheckCircle2 />} color="bg-slate-500" />
-        <StatCard title="Saldo en Caja (Por Entregar)" value={`${settings.currency} ${stats.cashOnHand.toLocaleString()}`} icon={<Briefcase />} color="bg-indigo-500" />
-        <StatCard title="Inquilinos con Alertas" value={alerts.length} icon={<Bell />} color={alerts.length > 0 ? "bg-rose-500" : "bg-emerald-400"} alert={alerts.length > 0} />
+        <div className="flex w-full md:w-auto gap-4">
+          <div className="relative flex-1 md:w-80">
+            <Search className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-400" size={18}/>
+            <input 
+              type="text" 
+              placeholder="BUSCAR NOMBRE O DNI..." 
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              className="w-full pl-14 pr-6 py-5 bg-white border border-slate-200 rounded-2xl font-bold text-xs outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 transition-all"
+            />
+          </div>
+          <button onClick={() => setShowAdd(true)} className="bg-indigo-600 text-white px-8 py-5 rounded-2xl font-black flex items-center gap-3 shadow-xl hover:bg-indigo-700 transition-all text-xs uppercase tracking-widest shrink-0"><Plus size={20}/> Nuevo</button>
+        </div>
       </div>
 
-      <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
-        <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
-          <div>
-            <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2"><Map size={20} className="text-indigo-600"/> Mapa Visual del Edificio</h3>
-            <p className="text-sm text-slate-500">Estado en tiempo real de los 5 pisos.</p>
-          </div>
-          <div className="flex flex-wrap gap-3 text-xs font-medium">
-            <Badge label="Ocupado" color="bg-emerald-500" />
-            <Badge label="Desocupado" color="bg-slate-300" textColor="text-slate-700" />
-            <Badge label="Mantenimiento" color="bg-blue-500" />
-          </div>
-        </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-8">
+        {filtered.map(t => {
+          const c = contracts.find(x => x.tenantId === t.id && x.active);
+          const r = rooms.find(x => x.id === c?.roomId);
+          return (
+            <div key={t.id} className="bg-white p-8 rounded-[3rem] shadow-sm border border-slate-200 hover:shadow-2xl hover:-translate-y-1 transition-all group">
+              <div className="flex items-center gap-5 mb-8">
+                <div className="w-16 h-16 bg-slate-100 rounded-[1.5rem] flex items-center justify-center font-black text-indigo-600 text-2xl group-hover:bg-indigo-600 group-hover:text-white transition-all shadow-inner">{t.name[0]}</div>
+                <div>
+                  <h3 className="font-black text-slate-800 uppercase text-lg leading-none mb-1">{t.name} {t.lastName}</h3>
+                  <span className="inline-block px-3 py-1 bg-emerald-50 text-emerald-600 text-[9px] font-black uppercase rounded-full tracking-widest">Inquilino Activo</span>
+                </div>
+              </div>
+              
+              <div className="grid grid-cols-2 gap-3 mb-8">
+                <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
+                  <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Cuarto</p>
+                  <p className="font-black text-xl text-slate-900">{r ? r.number : 'N/A'}</p>
+                </div>
+                <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
+                  <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Mensualidad</p>
+                  <p className="font-black text-xl text-slate-900">{settings.currency}{c?.amount || 0}</p>
+                </div>
+              </div>
 
-        <div className="space-y-6">
-          {[5, 4, 3, 2, 1].map(floor => (
-            <div key={floor} className="flex flex-col md:flex-row items-center gap-4">
-              <div className="w-24 text-center md:text-right font-bold text-slate-400">Piso {floor}</div>
-              <div className="flex-1 grid grid-cols-5 md:grid-cols-10 gap-2 w-full">
-                {rooms.filter(r => r.floor === floor).map(room => (
-                  <RoomMapNode key={room.id} room={room} contracts={contracts} />
-                ))}
+              <div className="flex gap-2">
+                <button onClick={() => setSelected({tenant: t, room: r, contract: c})} className="flex-1 bg-slate-900 text-white py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-black transition-all flex items-center justify-center gap-2"><FileText size={14}/> Contrato</button>
+                <a href={`https://wa.me/${t.phone}`} target="_blank" className="bg-[#25D366] text-white p-4 rounded-2xl shadow-lg hover:scale-105 transition-all"><MessageCircle size={18}/></a>
+                <button onClick={() => { if(window.confirm('¿Eliminar inquilino?')) removeTenant(t.id); }} className="bg-rose-50 text-rose-500 p-4 rounded-2xl hover:bg-rose-500 hover:text-white transition-all"><Trash2 size={18}/></button>
               </div>
             </div>
+          );
+        })}
+        {filtered.length === 0 && <div className="col-span-full py-20 text-center opacity-20 font-black text-3xl uppercase tracking-[0.3em]">No se encontraron inquilinos</div>}
+      </div>
+
+      {showAdd && <AddTenantModal onSave={handleSave} onCancel={() => setShowAdd(false)} rooms={rooms} settings={settings} />}
+      {selected && <ContractModal data={selected} settings={settings} onClose={() => setSelected(null)} />}
+    </div>
+  );
+}
+
+// --- VENTANA MODAL: AÑADIR INQUILINO ---
+function AddTenantModal({ onSave, onCancel, rooms, settings }) {
+  const [form, setForm] = useState({ name:'', lastName:'', document:'', phone:'', roomId:'', amount: 500, guarantee: 500, startDate: new Date().toISOString().split('T')[0] });
+  
+  const handleRoomChange = (id) => {
+    const room = rooms.find(r => r.id === id);
+    setForm({ ...form, roomId: id, amount: room?.price || 500, guarantee: room?.guarantee || 500 });
+  };
+
+  return (
+    <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[100] flex items-center justify-center p-4">
+      <div className="bg-white rounded-[3.5rem] p-10 md:p-14 w-full max-w-2xl shadow-2xl border border-white/20 animate-in slide-in-from-bottom-12 duration-500">
+        <h2 className="text-4xl font-black text-slate-900 uppercase tracking-tighter mb-10 italic">Nueva Admisión</h2>
+        
+        <form onSubmit={(e) => { e.preventDefault(); onSave({ name: form.name, lastName: form.lastName, document: form.document, phone: form.phone }, form.roomId, { amount: form.amount, guarantee: form.guarantee, startDate: form.startDate, endDate: 'Indefinido' }); }} className="space-y-6">
+          <div className="grid grid-cols-2 gap-6">
+            <InputField label="NOMBRES" value={form.name} onChange={v => setForm({...form, name: v})} required />
+            <InputField label="APELLIDOS" value={form.lastName} onChange={v => setForm({...form, lastName: v})} required />
+          </div>
+          
+          <div className="grid grid-cols-2 gap-6">
+            <InputField label="DNI / DOCUMENTO" value={form.document} onChange={v => setForm({...form, document: v})} required />
+            <InputField label="CELULAR (WHATSAPP)" value={form.phone} onChange={v => setForm({...form, phone: v})} required />
+          </div>
+
+          <div className="p-8 bg-indigo-50 rounded-[2.5rem] space-y-6 border border-indigo-100">
+            <div className="space-y-2">
+              <label className="text-[10px] font-black text-indigo-400 uppercase tracking-widest ml-2">Seleccionar Cuarto Disponible</label>
+              <select 
+                className="w-full p-5 bg-white rounded-2xl font-black text-xs border-2 border-indigo-100 focus:border-indigo-500 outline-none"
+                value={form.roomId}
+                onChange={e => handleRoomChange(e.target.value)}
+                required
+              >
+                <option value="">-- SELECCIONE UN CUARTO --</option>
+                {rooms.filter(r => r.status === 'available').map(r => (
+                  <option key={r.id} value={r.id}>C-{r.number} (Piso {r.floor}) - {settings.currency}{r.price}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="grid grid-cols-2 gap-6">
+               <InputField label="MENSUALIDAD ACORDADA" type="number" value={form.amount} onChange={v => setForm({...form, amount: v})} />
+               <InputField label="GARANTÍA ENTREGADA" type="number" value={form.guarantee} onChange={v => setForm({...form, guarantee: v})} />
+            </div>
+          </div>
+
+          <div className="flex gap-4 pt-6">
+            <button type="button" onClick={onCancel} className="flex-1 p-6 text-slate-400 font-black uppercase text-xs tracking-[0.2em] hover:text-slate-600 transition-colors">Cancelar</button>
+            <button type="submit" className="flex-1 bg-indigo-600 text-white p-6 rounded-3xl font-black uppercase text-xs tracking-[0.2em] shadow-xl shadow-indigo-600/30 hover:bg-indigo-700 active:scale-95 transition-all">Registrar Inquilino</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+function InputField({ label, type = "text", value, onChange, required = false }) {
+  return (
+    <div className="space-y-2">
+      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">{label}</label>
+      <input 
+        type={type} 
+        value={value} 
+        onChange={e => onChange(e.target.value)}
+        required={required}
+        className="w-full p-5 bg-slate-100 rounded-2xl font-bold text-xs border-2 border-transparent focus:border-indigo-500 focus:bg-white transition-all outline-none"
+      />
+    </div>
+  );
+}
+
+// --- VISTA: GESTOR DE CUARTOS ---
+function RoomsManager({ rooms, saveRoom, tenants, contracts, settings }) {
+  const [filter, setFilter] = useState('all');
+
+  const filteredRooms = rooms.filter(r => filter === 'all' || r.status === filter).sort((a,b) => a.number.localeCompare(b.number));
+
+  const updatePrice = (r, price) => {
+    saveRoom({ ...r, price: Number(price), guarantee: Number(price) });
+  };
+
+  const updateStatus = (r, status) => {
+    saveRoom({ ...r, status });
+  };
+
+  return (
+    <div className="space-y-10 animate-in fade-in duration-500">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
+        <div>
+          <h2 className="text-4xl font-black text-slate-900 uppercase tracking-tighter italic">Cuartos</h2>
+          <p className="text-slate-400 font-bold uppercase text-[10px] tracking-widest mt-1">Control de inventario y estado</p>
+        </div>
+        <div className="flex p-1 bg-slate-200 rounded-2xl">
+          {['all', 'available', 'occupied', 'maintenance'].map(f => (
+            <button 
+              key={f} 
+              onClick={() => setFilter(f)}
+              className={`px-6 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${filter === f ? 'bg-white text-slate-900 shadow-md' : 'text-slate-500 hover:text-slate-700'}`}
+            >
+              {f === 'all' ? 'Todos' : f === 'available' ? 'Libres' : f === 'occupied' ? 'Ocupados' : 'Taller'}
+            </button>
           ))}
         </div>
       </div>
+
+      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8 gap-4">
+        {filteredRooms.map(r => {
+          const tenant = r.status === 'occupied' ? tenants.find(t => contracts.some(c => c.roomId === r.id && c.tenantId === t.id && c.active)) : null;
+          
+          return (
+            <div key={r.id} className={`p-5 rounded-[2rem] border-2 transition-all group relative ${
+              r.status === 'occupied' ? 'bg-white border-indigo-100' : 
+              r.status === 'maintenance' ? 'bg-amber-50 border-amber-100' : 'bg-emerald-50 border-emerald-100'
+            }`}>
+              <p className="text-[10px] font-black text-slate-400 mb-1">Piso {r.floor}</p>
+              <h4 className="text-2xl font-black text-slate-900 mb-4">{r.number}</h4>
+              
+              <div className="space-y-3">
+                <input 
+                  type="number" 
+                  value={r.price} 
+                  onChange={e => updatePrice(r, e.target.value)}
+                  className="w-full bg-transparent font-black text-xs outline-none border-b border-black/5 pb-1"
+                />
+                
+                <div className="flex gap-1">
+                  <button onClick={() => updateStatus(r, 'available')} className={`flex-1 h-2 rounded-full ${r.status === 'available' ? 'bg-emerald-500' : 'bg-slate-200'}`}></button>
+                  <button onClick={() => updateStatus(r, 'maintenance')} className={`flex-1 h-2 rounded-full ${r.status === 'maintenance' ? 'bg-amber-500' : 'bg-slate-200'}`}></button>
+                </div>
+              </div>
+
+              {tenant && (
+                <div className="absolute inset-0 bg-indigo-600 text-white rounded-[1.8rem] opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center p-4 text-center cursor-default">
+                  <User size={20} className="mb-2 opacity-50"/>
+                  <p className="text-[8px] font-black uppercase tracking-widest leading-tight">{tenant.name}</p>
+                  <p className="text-[8px] font-black uppercase tracking-widest opacity-60 mt-1">{tenant.lastName}</p>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
 
-function StatCard({ title, value, icon, color, alert }) {
+// --- VISTA: CONFIGURACIÓN ---
+function SettingsPanel({ settings, saveSettings }) {
+  const [form, setForm] = useState(settings);
+
   return (
-    <div className={`bg-white rounded-2xl p-6 shadow-sm border ${alert ? 'border-rose-300 bg-rose-50' : 'border-slate-200'} relative overflow-hidden`}>
-      <div className="flex justify-between items-start">
+    <div className="space-y-10 animate-in fade-in duration-500">
+      <div className="flex justify-between items-center pb-8 border-b border-slate-200">
         <div>
-          <p className="text-sm font-medium text-slate-500 mb-1">{title}</p>
-          <h4 className="text-3xl font-bold text-slate-800 truncate">{value}</h4>
+          <h2 className="text-4xl font-black text-slate-900 uppercase tracking-tighter italic">Configuración</h2>
+          <p className="text-slate-400 font-bold uppercase text-[10px] tracking-widest mt-1">Personalice su sistema y contratos</p>
         </div>
-        <div className={`${color} text-white p-3 rounded-xl shadow-inner flex-shrink-0`}>
-          {icon}
-        </div>
-      </div>
-      {alert && <div className="absolute top-0 right-0 w-3 h-3 bg-rose-500 rounded-full m-3 animate-ping" />}
-    </div>
-  );
-}
-
-function Badge({ label, color, textColor = "text-white" }) {
-  return (
-    <div className="flex items-center gap-1.5">
-      <span className={`w-3 h-3 rounded-full ${color}`}></span>
-      <span className={`text-slate-600`}>{label}</span>
-    </div>
-  );
-}
-
-function RoomMapNode({ room, contracts }) {
-  let bgColor = 'bg-slate-200';
-  let textColor = 'text-slate-600';
-  let title = `Cuarto ${room.number} - Desocupado`;
-
-  if (room.status === 'maintenance') {
-    bgColor = 'bg-blue-500'; textColor = 'text-white'; title = `Cuarto ${room.number} - En Mantenimiento`;
-  } else if (room.status === 'occupied') {
-    const activeContract = contracts.find(c => c.roomId === room.id && c.active);
-    if (activeContract) {
-      bgColor = 'bg-emerald-500'; textColor = 'text-white'; title = `Cuarto ${room.number} - Ocupado`;
-    }
-  }
-
-  return (
-    <div title={title} className={`aspect-square rounded-lg flex items-center justify-center text-xs font-bold shadow-sm transition-transform hover:scale-110 cursor-pointer ${bgColor} ${textColor} border border-black/5`}>
-      {room.number}
-    </div>
-  );
-}
-
-// --- VISTA: LIQUIDACIÓN AL DUEÑO ---
-function OwnerSettlementsView({ payments, settlements, saveSettlement, settings }) {
-  const [isAdding, setIsAdding] = useState(false);
-  
-  const totalIncome = payments.filter(p => p.status === 'paid').reduce((acc, curr) => acc + Number(curr.amount), 0);
-  const totalSettled = settlements.reduce((acc, curr) => acc + Number(curr.amount), 0);
-  const pendingBalance = totalIncome - totalSettled;
-
-  const handleSaveSettlement = (e) => {
-    e.preventDefault();
-    const form = e.target;
-    saveSettlement({
-      id: `set_${Date.now()}`,
-      date: form.date.value,
-      amount: Number(form.amount.value),
-      reference: form.reference.value,
-      notes: form.notes.value
-    });
-    setIsAdding(false);
-  };
-
-  return (
-    <div className="space-y-6 animate-in fade-in">
-      <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
-        <h2 className="text-xl font-bold text-slate-800 mb-6 flex items-center gap-2"><Landmark className="text-indigo-600"/> Rendición de Cuentas al Propietario</h2>
-        
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <div className="bg-slate-50 border border-slate-200 p-5 rounded-xl">
-            <p className="text-slate-500 text-sm font-medium mb-1">Total Recaudado (Caja Bruta)</p>
-            <h4 className="text-3xl font-bold text-slate-800">{settings.currency} {totalIncome.toLocaleString()}</h4>
-            <p className="text-xs text-slate-400 mt-2">Todo el dinero que ha ingresado por inquilinos.</p>
-          </div>
-          <div className="bg-emerald-50 border border-emerald-200 p-5 rounded-xl">
-            <p className="text-emerald-700 text-sm font-medium mb-1">Total Entregado al Dueño</p>
-            <h4 className="text-3xl font-bold text-emerald-700">{settings.currency} {totalSettled.toLocaleString()}</h4>
-            <p className="text-xs text-emerald-600/80 mt-2">Dinero que ya has transferido al propietario.</p>
-          </div>
-          <div className="bg-indigo-600 border border-indigo-700 p-5 rounded-xl text-white shadow-md relative overflow-hidden">
-            <p className="text-indigo-100 text-sm font-medium mb-1">Saldo en tu poder (Por Entregar)</p>
-            <h4 className="text-3xl font-bold">{settings.currency} {pendingBalance.toLocaleString()}</h4>
-            <p className="text-xs text-indigo-200 mt-2">Dinero exacto que debes rendirle actualmente.</p>
-            <Briefcase size={80} className="absolute -right-4 -bottom-4 text-white opacity-10" />
-          </div>
-        </div>
+        <button onClick={() => saveSettings(form)} className="bg-indigo-600 text-white px-10 py-5 rounded-3xl font-black flex items-center gap-3 shadow-xl hover:bg-indigo-700 active:scale-95 transition-all text-sm uppercase tracking-widest"><Save size={20}/> Guardar Cambios</button>
       </div>
 
-      <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
-        <div className="p-6 border-b border-slate-200 flex justify-between items-center bg-slate-50">
-          <h3 className="font-bold text-slate-800">Historial de Entregas de Dinero</h3>
-          <button onClick={() => setIsAdding(true)} className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg font-medium flex items-center gap-2 shadow-sm text-sm">
-            <Plus size={16} /> Registrar Nueva Entrega
-          </button>
-        </div>
-        <table className="w-full text-left">
-          <thead className="bg-white border-b border-slate-200">
-            <tr className="text-slate-500 text-sm">
-              <th className="p-4 font-medium">Fecha</th>
-              <th className="p-4 font-medium">Monto Entregado</th>
-              <th className="p-4 font-medium">N° Referencia / Operación</th>
-              <th className="p-4 font-medium">Observaciones</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100">
-            {settlements.length === 0 ? (
-              <tr><td colSpan="4" className="p-8 text-center text-slate-500">No hay registros de dinero entregado al dueño.</td></tr>
-            ) : settlements.map(s => (
-              <tr key={s.id} className="hover:bg-slate-50">
-                <td className="p-4 text-sm text-slate-600">{new Date(s.date).toLocaleDateString()}</td>
-                <td className="p-4 font-bold text-emerald-600">{settings.currency} {s.amount.toLocaleString()}</td>
-                <td className="p-4 text-slate-600">{s.reference || '-'}</td>
-                <td className="p-4 text-slate-500 text-sm">{s.notes || '-'}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-
-      {isAdding && (
-        <Modal title="Registrar Entrega de Dinero al Dueño" onClose={() => setIsAdding(false)}>
-          <form onSubmit={handleSaveSettlement} className="space-y-4">
-            <div className="bg-indigo-50 text-indigo-800 p-4 rounded-xl text-sm font-medium border border-indigo-100 mb-4">
-              Saldo actual por entregar: {settings.currency} {pendingBalance.toLocaleString()}
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Monto a Entregar</label>
-              <input type="number" name="amount" required max={pendingBalance} className="w-full p-2.5 border border-slate-300 rounded-lg" placeholder={`Máximo ${pendingBalance}`} />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Fecha de Entrega</label>
-              <input type="date" name="date" required defaultValue={new Date().toISOString().split('T')[0]} className="w-full p-2.5 border border-slate-300 rounded-lg" />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Referencia (Voucher, Efectivo)</label>
-              <input type="text" name="reference" required className="w-full p-2.5 border border-slate-300 rounded-lg" placeholder="Ej. Efectivo o Transferencia BCP" />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Observaciones (Opcional)</label>
-              <textarea name="notes" className="w-full p-2.5 border border-slate-300 rounded-lg" rows="2"></textarea>
-            </div>
-            <div className="flex justify-end gap-3 pt-4 border-t">
-              <button type="button" onClick={() => setIsAdding(false)} className="px-4 py-2 text-slate-600 bg-slate-100 rounded-lg">Cancelar</button>
-              <button type="submit" className="px-4 py-2 bg-indigo-600 text-white rounded-lg">Registrar Entrega</button>
-            </div>
-          </form>
-        </Modal>
-      )}
-    </div>
-  );
-}
-
-// --- VISTA CONFIGURACION Y RESPALDOS (EXCEL) ---
-function SettingsView({ settings, saveSettings, tenants, rooms, payments }) {
-  const [formData, setFormData] = useState(settings);
-  const [saved, setSaved] = useState(false);
-  
-  const handleSubmit = (e) => { 
-    e.preventDefault(); 
-    saveSettings(formData); 
-    setSaved(true); 
-    setTimeout(() => setSaved(false), 3000); 
-  };
-
-  // --- FUNCIÓN DE EXPORTACIÓN A EXCEL/GOOGLE SHEETS (CSV) ---
-  const downloadCSV = (data, filename) => {
-    if(data.length === 0) return alert("No hay datos para exportar.");
-    const headers = Object.keys(data[0]);
-    const csvRows = [];
-    csvRows.push(headers.join(',')); // Cabeceras
-
-    for (const row of data) {
-      const values = headers.map(header => {
-        const escaped = ('' + (row[header] || '')).replace(/"/g, '\\"');
-        return `"${escaped}"`;
-      });
-      csvRows.push(values.join(','));
-    }
-
-    // El \ufeff asegura que Excel lea las tildes (á, é, í) correctamente
-    const blob = new Blob(["\ufeff" + csvRows.join('\n')], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.setAttribute('href', url);
-    link.setAttribute('download', filename);
-    link.click();
-  };
-
-  const exportTenants = () => {
-    const data = tenants.map(t => ({
-      'DNI': t.document,
-      'Nombres': t.name,
-      'Apellidos': t.lastName,
-      'Teléfono': t.phone,
-      'Estado': t.status === 'active' ? 'Activo' : 'Inactivo',
-      'Contacto de Emergencia': t.emergencyContact || '-',
-      'Tel. Emergencia': t.emergencyPhone || '-'
-    }));
-    downloadCSV(data, 'Directorio_Inquilinos.csv');
-  };
-
-  const exportPayments = () => {
-    const data = payments.map(p => {
-      const t = tenants.find(x => x.id === p.tenantId);
-      const r = rooms.find(x => x.id === p.roomId);
-      return {
-        'Fecha de Pago': p.paymentDate || '-',
-        'Inquilino': t ? `${t.name} ${t.lastName}` : 'Desconocido',
-        'DNI': t ? t.document : '-',
-        'Cuarto': r ? r.number : '-',
-        'Concepto': p.concept,
-        'Monto Cobrado': p.amount,
-        'Estado': p.status === 'paid' ? 'Pagado' : 'Pendiente'
-      };
-    });
-    downloadCSV(data, 'Historial_de_Ingresos.csv');
-  };
-
-  const exportRooms = () => {
-    const data = rooms.map(r => ({
-      'N° Cuarto': r.number,
-      'Piso': r.floor,
-      'Estado': r.status === 'available' ? 'Disponible' : r.status === 'occupied' ? 'Ocupado' : 'Mantenimiento',
-      'Precio Mensual': r.price,
-      'Garantía Exigida': r.guarantee
-    }));
-    downloadCSV(data, 'Estado_de_Cuartos.csv');
-  };
-
-  return (
-    <div className="max-w-4xl space-y-6 animate-in fade-in pb-12">
-      
-      {/* SECCIÓN 1: CONFIGURACIÓN BÁSICA */}
-      <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
-        <div className="flex items-center gap-3 mb-6 pb-4 border-b"><Wrench className="text-indigo-600" /><h2 className="text-xl font-bold text-slate-800">Configuración del Edificio</h2></div>
-        <form onSubmit={handleSubmit} className="space-y-6">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-10">
+        <div className="bg-white p-10 rounded-[3rem] border border-slate-200 space-y-6">
+          <h3 className="font-black text-xl text-slate-800 uppercase tracking-tighter mb-4 flex items-center gap-3"><Building size={24} className="text-indigo-500"/> Información del Edificio</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div className="col-span-1 md:col-span-2"><label className="block text-sm font-medium text-slate-700 mb-1">Logo del Edificio (URL)</label><input type="url" value={formData.logoUrl} onChange={e => setFormData({...formData, logoUrl: e.target.value})} className="w-full p-2.5 border rounded-lg bg-slate-50" /></div>
-            <div><label className="block text-sm font-medium text-slate-700 mb-1">Nombre del Edificio</label><input type="text" value={formData.buildingName} onChange={e => setFormData({...formData, buildingName: e.target.value})} className="w-full p-2.5 border rounded-lg" /></div>
-            <div><label className="block text-sm font-medium text-slate-700 mb-1">Dirección</label><input type="text" value={formData.address} onChange={e => setFormData({...formData, address: e.target.value})} className="w-full p-2.5 border rounded-lg" /></div>
-            <div className="bg-indigo-50 p-4 rounded-xl border border-indigo-100"><label className="block text-sm font-bold text-indigo-900 mb-1">Nombre del Propietario (Dueño)</label><input type="text" value={formData.ownerName || ''} onChange={e => setFormData({...formData, ownerName: e.target.value})} className="w-full p-2.5 border-indigo-200 rounded-lg" /></div>
-            <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
-              <label className="block text-sm font-bold text-slate-800 mb-1">Tu Nombre (Administrador)</label>
-              <input type="text" value={formData.adminName} onChange={e => setFormData({...formData, adminName: e.target.value})} className="w-full p-2.5 border border-slate-300 rounded-lg mb-3" />
-              <label className="block text-sm font-bold text-slate-800 mb-1">DNI del Administrador</label>
-              <input type="text" value={formData.adminDni || ''} onChange={e => setFormData({...formData, adminDni: e.target.value})} className="w-full p-2.5 border border-slate-300 rounded-lg" />
-            </div>
-            <div><label className="block text-sm font-medium text-slate-700 mb-1">Moneda</label><input type="text" value={formData.currency} onChange={e => setFormData({...formData, currency: e.target.value})} className="w-full p-2.5 border rounded-lg" /></div>
+            <InputField label="Nombre del Residencial" value={form.buildingName} onChange={v => setForm({...form, buildingName: v})} />
+            <InputField label="Dirección" value={form.address} onChange={v => setForm({...form, address: v})} />
+            <InputField label="Nombre Administrador" value={form.adminName} onChange={v => setForm({...form, adminName: v})} />
+            <InputField label="DNI Administrador" value={form.adminDni} onChange={v => setForm({...form, adminDni: v})} />
+            <InputField label="Símbolo Moneda" value={form.currency} onChange={v => setForm({...form, currency: v})} />
+            <InputField label="URL Logo (PNG)" value={form.logoUrl} onChange={v => setForm({...form, logoUrl: v})} />
           </div>
-
-          <div>
-            <label className="block text-sm font-bold text-slate-800 mb-2 border-t pt-6">Plantilla Base de Contratos</label>
-            <p className="text-xs text-slate-500 mb-3 bg-slate-50 p-3 rounded-lg border border-slate-200">
-              Usa estas etiquetas exactas para que el sistema las reemplace automáticamente:<br/>
-              <strong className="text-indigo-600">[Dueño]</strong>, <strong className="text-indigo-600">[Admin]</strong>, <strong>[Nombre completo]</strong>, <strong>[DNI]</strong>, <strong>[Número de cuarto]</strong>, <strong>[Piso]</strong>, <strong>[Edificio]</strong>, <strong>[Monto]</strong>, <strong>[Garantía]</strong>, <strong>[Fecha inicio]</strong>, <strong>[Fecha fin]</strong>.<br/>
-              <span className="text-emerald-600 font-medium mt-2 block">* Nota: El sistema dibuja las líneas de las firmas automáticamente en la base del PDF. No es necesario escribirlas aquí.</span>
-            </p>
-            <textarea 
-              value={formData.contractTemplate} 
-              onChange={e => setFormData({...formData, contractTemplate: e.target.value})} 
-              className="w-full p-5 border border-slate-300 rounded-xl font-serif text-[15px] h-96 resize-y leading-relaxed shadow-inner focus:ring-2 focus:ring-indigo-500 outline-none"
-            ></textarea>
-          </div>
-
-          <div className="flex items-center gap-4 border-t pt-6"><button type="submit" className="px-6 py-3 bg-indigo-600 text-white rounded-xl font-bold flex items-center gap-2"><CheckCircle2 size={20} /> Guardar Cambios</button>{saved && <span className="text-emerald-600 font-bold flex items-center gap-1"><CheckCircle2 size={18} /> Guardado!</span>}</div>
-        </form>
-      </div>
-
-      {/* SECCIÓN 2: EXPORTACIÓN A EXCEL / GOOGLE SHEETS */}
-      <div className="bg-white p-6 rounded-2xl shadow-sm border border-emerald-200 bg-gradient-to-r from-emerald-50 to-white">
-        <div className="flex items-center gap-3 mb-4 pb-4 border-b border-emerald-100">
-          <Download className="text-emerald-600" />
-          <h2 className="text-xl font-bold text-emerald-900">Respaldos y Exportación (Excel / Sheets)</h2>
         </div>
-        <p className="text-sm text-slate-600 mb-6">
-          Tu sistema ya guarda todo de forma segura en la Nube Mundial de Google. Sin embargo, si deseas descargar tus datos para abrirlos en Excel o Google Sheets, puedes generar tus reportes aquí:
-        </p>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <button onClick={exportPayments} className="bg-emerald-600 hover:bg-emerald-700 text-white font-medium p-4 rounded-xl flex flex-col items-center justify-center gap-2 transition-transform hover:scale-105 shadow-sm">
-            <Receipt size={24} />
-            <span>Descargar Ingresos</span>
-          </button>
-          <button onClick={exportTenants} className="bg-white border-2 border-emerald-600 text-emerald-700 hover:bg-emerald-50 font-medium p-4 rounded-xl flex flex-col items-center justify-center gap-2 transition-transform hover:scale-105 shadow-sm">
-            <Users size={24} />
-            <span>Directorio de Inquilinos</span>
-          </button>
-          <button onClick={exportRooms} className="bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 font-medium p-4 rounded-xl flex flex-col items-center justify-center gap-2 transition-transform hover:scale-105 shadow-sm">
-            <Home size={24} />
-            <span>Estado de los Cuartos</span>
-          </button>
+
+        <div className="bg-slate-900 p-10 rounded-[3rem] shadow-2xl text-white space-y-6">
+          <h3 className="font-black text-xl uppercase tracking-tighter mb-4 flex items-center gap-3"><FileSignature size={24} className="text-indigo-400"/> Plantilla de Contrato</h3>
+          <p className="text-[10px] text-indigo-300 font-bold uppercase leading-relaxed bg-white/5 p-4 rounded-xl">
+            Variables disponibles: [Edificio], [Admin], [Nombre completo], [DNI], [Número de cuarto], [Piso], [Monto], [Garantía], [Fecha inicio].
+          </p>
+          <textarea 
+            className="w-full h-[400px] bg-slate-800 border-2 border-slate-700 rounded-3xl p-8 font-serif text-sm leading-relaxed focus:border-indigo-500 outline-none transition-all"
+            value={form.contractTemplate}
+            onChange={e => setForm({...form, contractTemplate: e.target.value})}
+          />
         </div>
       </div>
-
     </div>
   );
 }
 
-function Modal({ title, children, onClose, maxWidth = "max-w-md" }) {
+// --- VISUALIZADOR Y DESCARGADOR DE CONTRATO (PDF) ---
+function ContractModal({ data, settings, onClose }) {
+  const { tenant, room, contract } = data;
+  const [isPrinting, setIsPrinting] = useState(false);
+
+  const downloadPdf = async () => {
+    setIsPrinting(true);
+    if (!window.html2pdf) {
+      await new Promise(res => { 
+        const s = document.createElement('script'); 
+        s.src = "https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"; 
+        s.onload = res; 
+        document.head.appendChild(s); 
+      });
+    }
+    
+    // Obtener base64 del logo para que aparezca en el PDF sin errores de CORS
+    let logoBase64 = ""; 
+    try { 
+      logoBase64 = await new Promise((res) => { 
+        const img = new Image(); 
+        img.crossOrigin = "Anonymous"; 
+        img.onload = () => { 
+          const can = document.createElement('canvas'); 
+          can.width = img.width; 
+          can.height = img.height; 
+          can.getContext('2d').drawImage(img,0,0); 
+          res(can.toDataURL('image/png')); 
+        }; 
+        img.onerror = () => res(""); 
+        img.src = settings.logoUrl; 
+      }); 
+    } catch(e) {}
+    
+    const parsedTemplate = settings.contractTemplate
+      .replace(/\[Admin\]/g, settings.adminName)
+      .replace(/\[Nombre completo\]/g, `${tenant.name} ${tenant.lastName}`)
+      .replace(/\[DNI\]/g, tenant.document)
+      .replace(/\[Número de cuarto\]/g, room?.number || '---')
+      .replace(/\[Piso\]/g, room?.floor || '---')
+      .replace(/\[Edificio\]/g, settings.buildingName)
+      .replace(/\[Monto\]/g, `${settings.currency}${contract?.amount || 0}`)
+      .replace(/\[Garantía\]/g, `${settings.currency}${contract?.guarantee || 0}`)
+      .replace(/\[Fecha inicio\]/g, contract?.startDate || '---');
+
+    const html = `
+      <div style="width: 800px; padding: 70px; background: white; color: black; font-family: 'Times New Roman', serif; box-sizing: border-box;">
+        <div style="display:flex; justify-content:space-between; align-items:flex-end; border-bottom:4px solid black; padding-bottom:30px; margin-bottom:50px;">
+          <div style="display:flex; align-items:center; gap:25px;">
+            ${logoBase64 ? `<img src="${logoBase64}" style="max-height:85px" />` : ''}
+            <div>
+              <h1 style="margin:0; font-size:28px; text-transform:uppercase; font-family:Arial, sans-serif; font-weight:900; letter-spacing:-1px;">${settings.buildingName}</h1>
+              <p style="margin:5px 0 0 0; font-size:14px; font-family:Arial, sans-serif; color:#666; font-weight:bold; text-transform:uppercase;">${settings.address}</p>
+            </div>
+          </div>
+        </div>
+        
+        <div style="font-size:16px; line-height:1.8; text-align:justify; white-space:pre-wrap; color:#111;">${parsedTemplate}</div>
+        
+        <div style="display:flex; justify-content:space-between; margin-top:120px; font-family:Arial, sans-serif;">
+          <div style="width:42%; text-align:center; border-top:2px solid black; padding-top:20px;">
+            <p style="margin:0; font-weight:900; font-size:14px; text-transform:uppercase;">LA ADMINISTRACIÓN</p>
+            <p style="margin:5px 0 0 0; font-size:12px; color:#444;">${settings.adminName}</p>
+            <p style="margin:2px 0 0 0; font-size:11px; color:#666;">DNI: ${settings.adminDni}</p>
+          </div>
+          <div style="width:42%; text-align:center; border-top:2px solid black; padding-top:20px;">
+            <p style="margin:0; font-weight:900; font-size:14px; text-transform:uppercase;">EL INQUILINO(A)</p>
+            <p style="margin:5px 0 0 0; font-size:12px; color:#444;">${tenant.name} ${tenant.lastName}</p>
+            <p style="margin:2px 0 0 0; font-size:11px; color:#666;">DNI: ${tenant.document}</p>
+          </div>
+        </div>
+      </div>
+    `;
+
+    const opt = { 
+      margin: 0, 
+      filename: `Contrato_${tenant.name}_${room?.number}.pdf`, 
+      image: { type: 'jpeg', quality: 0.98 }, 
+      html2canvas: { scale: 2, useCORS: true, letterRendering: true }, 
+      jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' } 
+    };
+
+    await html2pdf().set(opt).from(html).save();
+    setIsPrinting(false);
+  };
+
   return (
-    <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex justify-center items-center p-4 animate-in fade-in duration-200">
-      <div className={`bg-white rounded-2xl w-full ${maxWidth} shadow-2xl max-h-[90vh] flex flex-col scale-in-center overflow-hidden`}>
-        <div className="flex justify-between items-center p-5 border-b border-slate-100 bg-slate-50"><h3 className="font-bold text-lg text-slate-800">{title}</h3><button onClick={onClose} className="p-2 hover:bg-slate-200 rounded-xl text-slate-500"><X size={20} /></button></div>
-        <div className="p-6 overflow-y-auto">{children}</div>
+    <div className="fixed inset-0 bg-slate-950/95 z-[100] flex items-center justify-center p-4">
+      <div className="bg-white rounded-[4rem] w-full max-w-6xl max-h-[92vh] flex flex-col overflow-hidden shadow-2xl animate-in zoom-in duration-300 border border-white/10">
+        <div className="p-10 border-b flex justify-between items-center bg-slate-50">
+          <div className="flex items-center gap-4">
+            <div className="p-3 bg-indigo-100 text-indigo-600 rounded-2xl"><FileText size={28}/></div>
+            <div>
+              <h2 className="text-2xl font-black uppercase text-slate-800 tracking-tighter leading-none">Visor de Contrato</h2>
+              <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">Previsualización oficial para impresión</p>
+            </div>
+          </div>
+          <div className="flex gap-4">
+            <button onClick={downloadPdf} disabled={isPrinting} className="bg-indigo-600 text-white px-10 py-5 rounded-[2rem] font-black text-[11px] uppercase tracking-widest flex items-center gap-3 shadow-xl hover:bg-indigo-700 transition-all active:scale-95 disabled:opacity-50">
+              {isPrinting ? <Clock className="animate-spin" size={18}/> : <Download size={18}/>} Descargar PDF
+            </button>
+            <button onClick={onClose} className="bg-slate-200 text-slate-500 p-5 rounded-[2rem] hover:bg-slate-300 transition-all"><X size={28}/></button>
+          </div>
+        </div>
+        
+        <div className="flex-1 overflow-auto p-12 bg-slate-200 flex justify-center">
+          <div className="bg-white shadow-[0_40px_100px_-20px_rgba(0,0,0,0.3)] p-20 text-justify font-serif relative transition-transform" style={{ width: '210mm', minHeight: '297mm', color: '#1a1a1a' }}>
+            <div className="flex items-center justify-between border-b-4 border-slate-900 pb-8 mb-14">
+              <div className="flex items-center gap-6">
+                <img src={settings.logoUrl} className="h-20 object-contain" alt="Logo" crossOrigin="anonymous" />
+                <div>
+                  <h1 className="font-black text-3xl uppercase font-sans tracking-tighter mb-1 leading-none">{settings.buildingName}</h1>
+                  <p className="text-xs font-sans text-slate-400 font-bold uppercase tracking-[0.2em]">{settings.address}</p>
+                </div>
+              </div>
+            </div>
+            
+            <div className="whitespace-pre-wrap leading-[2] text-[17px] mb-20">
+              {settings.contractTemplate
+                .replace(/\[Admin\]/g, settings.adminName)
+                .replace(/\[Nombre completo\]/g, `${tenant.name} ${tenant.lastName}`)
+                .replace(/\[DNI\]/g, tenant.document)
+                .replace(/\[Número de cuarto\]/g, room?.number || '---')
+                .replace(/\[Piso\]/g, room?.floor || '---')
+                .replace(/\[Edificio\]/g, settings.buildingName)
+                .replace(/\[Monto\]/g, `${settings.currency}${contract?.amount || 0}`)
+                .replace(/\[Garantía\]/g, `${settings.currency}${contract?.guarantee || 0}`)
+                .replace(/\[Fecha inicio\]/g, contract?.startDate || '---')}
+            </div>
+
+            <div className="flex justify-between font-sans mt-auto pt-20">
+              <div className="w-[42%] text-center border-t-2 border-slate-900 pt-6">
+                <p className="font-black text-[10px] uppercase text-slate-400 mb-2">Administración</p>
+                <p className="font-black uppercase text-sm leading-none">{settings.adminName}</p>
+                <p className="text-[10px] font-bold text-slate-400 mt-1">DNI: {settings.adminDni}</p>
+              </div>
+              <div className="w-[42%] text-center border-t-2 border-slate-900 pt-6">
+                <p className="font-black text-[10px] uppercase text-slate-400 mb-2">Inquilino(a)</p>
+                <p className="font-black uppercase text-sm leading-none">{tenant.name} {tenant.lastName}</p>
+                <p className="text-[10px] font-bold text-slate-400 mt-1">DNI: {tenant.document}</p>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );
